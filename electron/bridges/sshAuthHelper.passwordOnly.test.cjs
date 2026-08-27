@@ -279,3 +279,14 @@ test("buildAuthHandler password-only may still attach unlocked encrypted keys fo
     `jump-chain retry may still offer unlocked keys; offered=${labels.join(",")}`,
   );
 });
+
+test("buildAuthHandler explicit password mode submits an empty string password", () => {
+  const { authHandler } = buildAuthHandler({
+    authMethod: "password",
+    password: "",
+    username: "root",
+  });
+  const labels = collectAuthMethods(authHandler);
+  assert.equal(labels.includes("password"), true, labels.join(","));
+});
+

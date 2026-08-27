@@ -91,7 +91,7 @@ export const findSshDeepLinkHost = (
   return candidates.length === 1 ? candidates[0] : null;
 };
 
-const isLoopbackHostname = (hostname: string): boolean => {
+export const isLoopbackHostname = (hostname: string): boolean => {
   const host = normalizeHostname(hostname);
   return host === "127.0.0.1" || host === "localhost" || host === "::1";
 };
@@ -120,7 +120,10 @@ export const buildSshDeepLinkEphemeralHost = (
   options: SshDeepLinkDraftOptions,
 ): Host => ({
   ...buildSshDeepLinkHostDraft(target, options),
-  ...(target.password ? { password: target.password, authMethod: "password" as const } : {}),
+  // Empty string is a real secret for bastion tunnels (Xshell: press Enter).
+  ...(typeof target.password === "string"
+    ? { password: target.password, authMethod: "password" as const }
+    : {}),
   savePassword: false,
   ephemeral: true,
   moshEnabled: false,
@@ -148,7 +151,9 @@ export const buildSshDeepLinkEphemeralHostFromSaved = (
   id: options.id,
   createdAt: options.now,
   ...(target.username ? { username: target.username } : {}),
-  ...(target.password ? { password: target.password, authMethod: "password" as const } : {}),
+  ...(typeof target.password === "string"
+    ? { password: target.password, authMethod: "password" as const }
+    : {}),
   identityId: undefined,
   identityFileId: undefined,
   identityFilePaths: undefined,

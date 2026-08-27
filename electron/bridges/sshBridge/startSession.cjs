@@ -1403,7 +1403,7 @@ function createStartSessionApi(ctx) {
           keySource: options.keySource,
           hasPublicKey: !!options.publicKey,
           hasPrivateKey: !!options.privateKey,
-          hasPassword: !!options.password,
+          hasPassword: isPasswordProvided(options.password),
           hasEffectivePassphrase: !!effectivePassphrase,
         });
 
@@ -1564,7 +1564,7 @@ function createStartSessionApi(ctx) {
         // If no primary auth method configured, try ssh-agent first, then ALL default keys.
         // Skip default-key primaries when the user explicitly chose a key (inline or
         // identityFilePaths) even if loading that key failed (issue #1614).
-        if (!connectOpts.privateKey && !connectOpts.password && !connectOpts.agent) {
+        if (!connectOpts.privateKey && !isPasswordProvided(connectOpts.password) && !connectOpts.agent) {
           // First, try to use ssh-agent if available (this is what regular SSH does)
           const sshAgentSocket = options.useSshAgent !== false
             ? await getAvailableAgentSocket()
@@ -1588,7 +1588,7 @@ function createStartSessionApi(ctx) {
 
         log("Final auth configuration", {
           hasPrivateKey: !!connectOpts.privateKey,
-          hasPassword: !!connectOpts.password,
+          hasPassword: isPasswordProvided(connectOpts.password),
           hasAgent: !!connectOpts.agent,
           hasDefaultKeyFallback: !!defaultKeyInfo && !isPasswordOnlyAuth,
           isPasswordOnlyAuth,
@@ -1625,7 +1625,7 @@ function createStartSessionApi(ctx) {
           if (options.requiresMfa && !options._skipPasswordMethod) {
             order.push("keyboard-interactive");
           }
-          if (connectOpts.password && !options._skipPasswordMethod) {
+          if (isPasswordProvided(connectOpts.password) && !options._skipPasswordMethod) {
             order.push("password");
           }
           // Default key fallback only when this is not password-only (issue #266 / #2079).
@@ -1652,7 +1652,7 @@ function createStartSessionApi(ctx) {
           const authMethods = [];
 
           if (isAutomaticAuth) {
-            if (options.requiresMfa && !connectOpts.password && !options._skipPasswordMethod) {
+            if (options.requiresMfa && !isPasswordProvided(connectOpts.password) && !options._skipPasswordMethod) {
               authMethods.push({ type: "keyboard-interactive", id: "keyboard-interactive" });
             }
             if (shouldOfferAgentForLogin(options, { agent: loginAgent })) {
@@ -1669,10 +1669,10 @@ function createStartSessionApi(ctx) {
                 id: `publickey-default-${keyInfo.keyName}`
               });
             }
-            if (options.requiresMfa && connectOpts.password && !options._skipPasswordMethod) {
+            if (options.requiresMfa && isPasswordProvided(connectOpts.password) && !options._skipPasswordMethod) {
               authMethods.push({ type: "keyboard-interactive", id: "keyboard-interactive" });
             }
-            if (connectOpts.password && !options._skipPasswordMethod) {
+            if (isPasswordProvided(connectOpts.password) && !options._skipPasswordMethod) {
               authMethods.push({ type: "password", id: "password" });
             }
           } else {
@@ -1693,7 +1693,7 @@ function createStartSessionApi(ctx) {
             }
 
             // Then try password if available (explicit user choice).
-            if (connectOpts.password && !options._skipPasswordMethod) {
+            if (isPasswordProvided(connectOpts.password) && !options._skipPasswordMethod) {
               authMethods.push({ type: "password", id: "password" });
             }
 
@@ -2294,7 +2294,7 @@ function createStartSessionApi(ctx) {
             if (isAuthError) {
               if (
                 !options._skipPasswordMethod &&
-                connectOpts.password &&
+                isPasswordProvided(connectOpts.password) &&
                 connectOpts._shouldRetryKeyboardInteractiveFirst?.()
               ) {
                 err.retryKeyboardInteractiveFirst = true;
@@ -2497,7 +2497,7 @@ function createStartSessionApi(ctx) {
             // Try agent FIRST (this is what regular SSH does - it checks ssh-agent before key files)
             if (loginAgent) authMethods.push("agent");
             if (connectOpts.privateKey) authMethods.push("publickey");
-            if (connectOpts.password && !options._skipPasswordMethod) {
+            if (isPasswordProvided(connectOpts.password) && !options._skipPasswordMethod) {
               authMethods.push("password");
             }
             authMethods.push("keyboard-interactive");
@@ -2528,7 +2528,7 @@ function createStartSessionApi(ctx) {
             timeout: connectOpts.timeout,
             readyTimeout: connectOpts.readyTimeout,
             tryKeyboard: connectOpts.tryKeyboard,
-            hasPassword: !!connectOpts.password,
+            hasPassword: isPasswordProvided(connectOpts.password),
             hasPrivateKey: !!connectOpts.privateKey,
             hasAgent: !!connectOpts.agent,
             authHandlerType: Array.isArray(connectOpts.authHandler) ? "array" : typeof connectOpts.authHandler,

@@ -950,7 +950,8 @@ function hasUserConfiguredKey(options) {
  * @returns {boolean}
  */
 function isPasswordProvided(password) {
-  return typeof password === "string" && password.length > 0;
+  // Empty string is intentional (bastion "Password:" + Enter). Only undefined/null mean "no password".
+  return typeof password === "string";
 }
 
 /**
@@ -1030,7 +1031,7 @@ function buildAuthHandler(options) {
 
   // Determine what type of explicit auth the user configured
   const hasExplicitKey = !!privateKey;
-  const hasExplicitPassword = !!password;
+  const hasExplicitPassword = isPasswordProvided(password);
   const hasExplicitAgent = !!agent;
   const hasExplicitAuth = hasExplicitKey || hasExplicitPassword || hasExplicitAgent;
   const isAutomatic = options.authMethod === "auto";
@@ -1106,7 +1107,7 @@ function buildAuthHandler(options) {
     if (effectiveAgent) authMethods.push("agent");
     if (!isPasswordOnly && privateKey) authMethods.push("publickey");
     appendPasswordAuthMethods(authMethods, {
-      hasPassword: !!password,
+      hasPassword: isPasswordProvided(password),
       skipPasswordMethod,
       preferKeyboardInteractive: requiresMfa,
       asObjects: false,
@@ -1133,7 +1134,7 @@ function buildAuthHandler(options) {
     // Password-only: respect user's explicit choice, no key/agent fallback.
     // Matches startSSHSession (issue #2079) and avoids #266 passphrase prompts.
     appendPasswordAuthMethods(authMethods, {
-      hasPassword: !!password,
+      hasPassword: isPasswordProvided(password),
       skipPasswordMethod,
       preferKeyboardInteractive: requiresMfa,
       asObjects: true,
@@ -1164,7 +1165,7 @@ function buildAuthHandler(options) {
       });
     }
     appendPasswordAuthMethods(authMethods, {
-      hasPassword: !!password,
+      hasPassword: isPasswordProvided(password),
       skipPasswordMethod,
       preferKeyboardInteractive: requiresMfa && hasExplicitPassword,
       asObjects: true,
@@ -1182,7 +1183,7 @@ function buildAuthHandler(options) {
 
     // 2. Password (if configured alongside key)
     appendPasswordAuthMethods(authMethods, {
-      hasPassword: !!password,
+      hasPassword: isPasswordProvided(password),
       skipPasswordMethod,
       preferKeyboardInteractive: requiresMfa,
       asObjects: true,
@@ -1221,7 +1222,7 @@ function buildAuthHandler(options) {
 
     // 3. Password (if configured)
     appendPasswordAuthMethods(authMethods, {
-      hasPassword: !!password,
+      hasPassword: isPasswordProvided(password),
       skipPasswordMethod,
       preferKeyboardInteractive: requiresMfa,
       asObjects: true,
@@ -1264,7 +1265,7 @@ function buildAuthHandler(options) {
     isAutomatic,
     isPasswordOnly,
     hasUserKey: !!privateKey,
-    hasPassword: !!password,
+    hasPassword: isPasswordProvided(password),
     hasAgent: !!effectiveAgent,
     skipPasswordMethod: !!skipPasswordMethod,
     methodCount: authMethods.length,
