@@ -4,6 +4,11 @@ const {
   parsePuttyCommandLine,
   redactPuttyCommandLinePasswords,
 } = require("./puttyCommandLine.cjs");
+const {
+  collectXshellSessionDeepLinkUrls,
+  isXshellSessionPath,
+  parseXshellSessionFile,
+} = require("./xshellSessionFile.cjs");
 
 const SSH_DEEP_LINK_CHANNEL = "netcatty:deepLink:ssh";
 const TELNET_DEEP_LINK_CHANNEL = "netcatty:deepLink:telnet";
@@ -55,6 +60,11 @@ function collectPuttyStyleDeepLinkUrls(argv) {
     || collectJmsDeepLinkUrls(argv).length > 0
   ) {
     return { ssh: [], telnet: [] };
+  }
+
+  const xshellUrls = collectXshellSessionDeepLinkUrls(argv);
+  if (xshellUrls.length > 0) {
+    return { ssh: xshellUrls, telnet: [] };
   }
 
   const parsed = parsePuttyCommandLine(argv);
@@ -407,10 +417,13 @@ module.exports = {
   getSshDeepLinkRendererReadyTimeoutMs,
   collectJmsDeepLinkUrls,
   collectPuttyStyleDeepLinkUrls,
+  collectXshellSessionDeepLinkUrls,
+  parseXshellSessionFile,
   collectSshDeepLinkUrls,
   collectTelnetDeepLinkUrls,
   redactPuttyCommandLinePasswords,
   isJmsDeepLinkUrl,
+  isXshellSessionPath,
   isSshDeepLinkUrl,
   isTelnetDeepLinkUrl,
   readJmsDeepLinkEnabledPreference,
