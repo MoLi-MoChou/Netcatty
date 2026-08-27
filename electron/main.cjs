@@ -79,8 +79,10 @@ const {
   collectTelnetDeepLinkUrls,
   redactPuttyCommandLinePasswords,
   isJmsDeepLinkUrl,
+  isXshellSessionPath,
   isSshDeepLinkUrl,
   isTelnetDeepLinkUrl,
+  parseXshellSessionFile,
   readJmsDeepLinkEnabledPreference,
   readSshDeepLinkEnabledPreference,
   shouldDeliverJmsDeepLink,
@@ -1160,6 +1162,14 @@ if (!gotLock) {
 
   app.on("open-file", (event, filePath) => {
     event.preventDefault();
+    if (isXshellSessionPath(filePath)) {
+      const parsed = parseXshellSessionFile(filePath);
+      if (parsed?.url) {
+        queueSshDeepLink(parsed.url);
+        return;
+      }
+      console.warn("[Main] Xshell session file present but could not be parsed:", filePath);
+    }
     queueOpenTerminalPath(filePath);
   });
 

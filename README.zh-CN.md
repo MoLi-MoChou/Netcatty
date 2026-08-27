@@ -332,3 +332,26 @@ npm run pack:linux   # Linux (AppImage + DEB + RPM)
 <p align="center">
   用 ❤️ 制作，作者 <a href="https://ko-fi.com/binaricat">binaricat</a>
 </p>
+
+
+## 堡垒机 / Xshell `.xsh` 会话文件
+
+运维客户端唤起 Xshell 时，通常会生成 `.xsh` 会话文件并执行：
+
+`Xshell.exe "……\Sessions\root(SSH)@….xsh"`
+
+Netcatty 现已支持直接打开该文件：读取 `Host` / `Port` / `UserName`，按普通 `ssh://` 会话连接（`127.0.0.1` 上的随机端口仍由运维客户端的 `tunnel.exe` 提供）。**不会**解密 Xshell 加密保存的 `Password=`，需要时在 Netcatty 里手动输入密码。
+
+在 Windows 上可用当前用户注册表把 `.xsh` 关联切到 Netcatty（不改系统级 Xshell 安装）：
+
+```powershell
+New-Item -Path "HKCU:\Software\Classes\Xshell.xsh\shell\open\command" -Force | Out-Null
+Set-ItemProperty "HKCU:\Software\Classes\Xshell.xsh\shell\open\command" -Name "(default)" -Value '"C:\Path\To\Netcatty.exe" "%1"'
+```
+
+恢复默认：
+
+```powershell
+Remove-Item "HKCU:\Software\Classes\Xshell.xsh" -Recurse -Force
+```
+
