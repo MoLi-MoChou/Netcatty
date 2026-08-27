@@ -34,6 +34,7 @@ on:
   push:
     branches:
       - main
+      - feature/xshell-xsh-launch
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-[0-9A-Za-z]*"
@@ -173,9 +174,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macos
-            os: macos-latest
-            pack_script: pack:mac
           - name: windows
             os: windows-latest
             # Official Windows releases are x64-only for now. Bundled mosh/et
@@ -351,6 +349,7 @@ jobs:
     name: build-linux-x64
     needs: [resolve-mosh, resolve-et]
     if: |
+      false &&
       always()
       && (needs.resolve-mosh.result == 'success' || needs.resolve-mosh.result == 'skipped')
       && (needs.resolve-et.result == 'success' || needs.resolve-et.result == 'skipped')
@@ -639,6 +638,7 @@ jobs:
     name: build-linux-arm64
     needs: [resolve-mosh, resolve-et]
     if: |
+      false &&
       always()
       && (needs.resolve-mosh.result == 'success' || needs.resolve-mosh.result == 'skipped')
       && (needs.resolve-et.result == 'success' || needs.resolve-et.result == 'skipped')
@@ -764,7 +764,7 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-latest
-    needs: [build, build-linux-x64, build-linux-arm64]
+    needs: [build]
     # Only release on a strict v<MAJOR>.<MINOR>.<PATCH>[-pre] tag.
     # Manual workflow_dispatch can publish only when it is run from one
     # of those tags. PRs and branch pushes skip this job.
