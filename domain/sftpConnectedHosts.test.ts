@@ -243,12 +243,38 @@ test("listSftpConnectedHosts includes ephemeral hosts present in hostsById", () 
   assert.equal(result[0]?.sessionId, "s-ephemeral");
 });
 
-test("listSftpConnectedHosts skips sessions whose host is missing from the map", () => {
-  const result = listSftpConnectedHosts(
-    [session({ id: "orphan", hostId: "missing", status: "connected" })],
-    new Map(),
+test("listSftpConnectedHosts synthesizes an ephemeral host when the session host is missing from the map", () => {
+  const sessions = [
+    session({
+      id: "s-xsh",
+      hostId: "ephemeral-xsh",
+      status: "connected",
+      hostname: "127.0.0.1",
+      username: "root",
+      port: 2222,
+    }),
+  ];
+  const result = listSftpConnectedHosts(sessions, new Map());
+  assert.equal(result.length, 1);
+  assert.equal(result[0]?.sessionId, "s-xsh");
+  assert.equal(result[0]?.host.id, "ephemeral-xsh");
+  assert.equal(result[0]?.host.hostname, "127.0.0.1");
+  assert.equal(result[0]?.host.username, "root");
+  assert.equal(result[0]?.host.port, 2222);
+  assert.equal(result[0]?.host.label, "root@127.0.0.1");
+  assert.equal(result[0]?.host.ephemeral, true);
+  assert.equal(result[0]?.host.authMethod, "password");
+  assert.equal(result[0]?.host.password, "");
+  assert.equal(result[0]?.host.legacyAlgorithms, true);
+  assert.equal(result[0]?.host.protocol, "ssh");
+  assert.equal(
+    resolveSftpTransferSourceSessionId(sessions, new Map(), "ephemeral-xsh"),
+    "s-xsh",
   );
-  assert.deepEqual(result, []);
+  assert.equal(
+    resolveSftpTransferSourceSessionId(sessions, new Map(), "ephemeral-xsh", result[0]?.host),
+    "s-xsh",
+  );
 });
 
 test("sftpHostEndpointsEqual compares hostname, username, and port", () => {

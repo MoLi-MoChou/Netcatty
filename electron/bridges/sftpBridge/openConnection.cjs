@@ -10,6 +10,7 @@ const {
 } = require("../boundedSshExec.cjs");
 const { openBoundedSftpChannel } = require("../boundedSftpOpen.cjs");
 const { openBoundedForwardOutCallback } = require("../boundedSshChannelOpen.cjs");
+const { isPasswordProvided } = require("../sshAuthHelper.cjs");
 
 /** Bound shell/scp probes so a hung remote exec cannot leave the panel connecting forever. */
 const SCP_PROBE_TIMEOUT_MS = 15_000;
@@ -61,7 +62,7 @@ function isSftpAuthError(err) {
 /** Decide whether the SFTP target should retry with keyboard-interactive before password. */
 function shouldRetrySftpKeyboardInteractiveFirst(options, authConfig, err) {
   return Boolean(
-    options?.password &&
+    isPasswordProvided(options?.password) &&
     !options?._skipPasswordMethod &&
     isSftpAuthError(err) &&
     authConfig?.authPhase?.retryKeyboardInteractiveFirst,
@@ -299,7 +300,7 @@ function createOpenConnectionApi(ctx) {
             }
           }
     
-          if (jump.password) connOpts.password = jump.password;
+          if (isPasswordProvided(jump.password)) connOpts.password = jump.password;
     
           // Get default keys (either from options if pre-fetched, or fetch them now)
           const defaultKeys = systemAuthAgent && jump.identitiesOnly
@@ -793,6 +794,35 @@ function createOpenConnectionApi(ctx) {
         }
       };
 
+      // Reuse the live terminal SSH session without an endpoint/auth fingerprint
+      // check. SFTP opens often omit password digest / legacyAlgorithms that the
+      // shell session recorded, so findTransportByEndpoint misses and would dial
+      // fresh with no password. Omitting `endpoint` lets findReusableSession skip
+      // sameEndpoint and return the live session connRef.
+      if (
+        options.sourceSessionId
+        && options.reuseTransport !== false
+        && !options.sudo
+        && typeof resolveTransportForReuse === "function"
+        && typeof createSessionBackedSftpClient === "function"
+      ) {
+        const live = resolveTransportForReuse({
+          sessions,
+          sourceSessionId: options.sourceSessionId,
+          kind: "channel",
+        });
+        if (live?.conn) {
+          try {
+            return await openOnSharedTransport(live, "reused source session transport");
+          } catch (liveErr) {
+            console.warn(
+              `[SFTP] Source session transport reuse failed for ${connId}; falling back:`,
+              liveErr?.message || String(liveErr),
+            );
+          }
+        }
+      }
+
       // Parked / shared transport without a live terminal session: open an SFTP
       // channel on the registry transport (no second MFA).
       // Dedicated bulk transfer / restart-resume passes reuseTransport:false so
@@ -1051,7 +1081,7 @@ function createOpenConnectionApi(ctx) {
         }
       }
     
-      if (options.password) connectOpts.password = options.password;
+      if (isPasswordProvided(options.password)) connectOpts.password = options.password;
     
       // Build auth handler using shared helper
       // Use pre-fetched agentSocket (validated async, including Windows service check)
@@ -1375,5 +1405,6 @@ module.exports = {
   createOpenConnectionApi,
   createBoundedProbeSignal,
   shouldRegisterFreshSftpTransport,
+  shouldRetrySftpKeyboardInteractiveFirst,
   SCP_PROBE_TIMEOUT_MS,
 };
