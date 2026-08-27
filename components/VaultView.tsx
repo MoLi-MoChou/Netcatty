@@ -101,6 +101,7 @@ import {
   SerialConfig,
   SSHKey,
   Snippet,
+  TerminalSession,
 } from "../types";
 import { AppLogo } from "./AppLogo";
 import { connectHostsStaggered } from "./connectHostsStaggered";
@@ -152,6 +153,7 @@ import {
 } from "./ui/tooltip";
 import { Badge } from "./ui/badge";
 import { HotkeyScheme, KeyBinding } from "../domain/models";
+import { sftpPickerSessionsEqual } from "../domain/sftpConnectedHosts";
 import { VaultViewLayout } from "./vault/VaultViewLayout";
 import { useVaultHostCollections } from "./vault/useVaultHostCollections";
 import { useVaultImportHandlers } from "../application/state/useVaultImportHandlers";
@@ -212,6 +214,10 @@ const isSortMode = (value: string): value is SortMode =>
 // Props without isActive - it's now subscribed internally
 interface VaultViewProps {
   hosts: Host[];
+  /** Vault + ephemeral terminal hosts for the port-forward picker. Defaults to hosts. */
+  terminalHosts?: Host[];
+  /** Live terminal sessions so the PF picker can surface connected one-shot hosts. */
+  sessions?: TerminalSession[];
   keys: SSHKey[];
   identities: Identity[];
   proxyProfiles: ProxyProfile[];
@@ -302,6 +308,8 @@ interface VaultViewProps {
 
 const VaultViewInner: React.FC<VaultViewProps> = ({
   hosts,
+  terminalHosts,
+  sessions,
   keys,
   identities,
   proxyProfiles,
@@ -1464,6 +1472,8 @@ const VaultViewInner: React.FC<VaultViewProps> = ({
           HostDetailsPanel,
           hostListScrollRef,
           hosts,
+          terminalHosts: terminalHosts ?? hosts,
+          sessions,
           HostTreeView,
           hotkeyScheme,
           identities,
@@ -1650,6 +1660,8 @@ export const vaultViewAreEqual = (
 ): boolean => {
   const isEqual =
     prev.hosts === next.hosts &&
+    (prev.terminalHosts ?? prev.hosts) === (next.terminalHosts ?? next.hosts) &&
+    sftpPickerSessionsEqual(prev.sessions, next.sessions) &&
     prev.keys === next.keys &&
     prev.identities === next.identities &&
     prev.proxyProfiles === next.proxyProfiles &&

@@ -21,7 +21,12 @@ import {
   PortForwardingType,
   ProxyProfile,
   SSHKey,
+  TerminalSession,
 } from "../domain/models";
+import {
+  mergePortForwardPickerHosts,
+  resolveSftpTransferSourceSessionId,
+} from "../domain/sftpConnectedHosts";
 import { resolveGroupDefaults, applyGroupDefaults } from "../domain/groupConfig";
 import { materializeHostProxyProfile } from "../domain/proxyProfiles";
 import { cn } from "../lib/utils";
@@ -67,6 +72,7 @@ type WizardStep =
 
 interface PortForwardingProps {
   hosts: Host[];
+  sessions?: TerminalSession[];
   keys: SSHKey[];
   identities?: import('../domain/models').Identity[];
   customGroups: string[];
@@ -82,6 +88,7 @@ interface PortForwardingProps {
 
 const PortForwarding: React.FC<PortForwardingProps> = ({
   hosts,
+  sessions = [],
   keys,
   identities = [],
   customGroups: _customGroups,
@@ -133,9 +140,13 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
     () => new Set(proxyProfiles.map((profile) => profile.id)),
     [proxyProfiles],
   );
+  const pickerHosts = useMemo(
+    () => mergePortForwardPickerHosts(hosts, sessions),
+    [hosts, sessions],
+  );
   const hostById = useMemo(
-    () => new Map(hosts.map((host) => [host.id, host])),
-    [hosts],
+    () => new Map(pickerHosts.map((host) => [host.id, host])),
+    [pickerHosts],
   );
   const ruleListRef = useRef<HTMLDivElement | null>(null);
 
@@ -172,7 +183,13 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
       }
 
       const _host = resolveEffectiveHost(_rawHost);
-      const effectiveHosts = hosts.map((host) => resolveEffectiveHost(host));
+      const effectiveHosts = pickerHosts.map((host) => resolveEffectiveHost(host));
+      const sourceSessionId = resolveSftpTransferSourceSessionId(
+        sessions,
+        hostById,
+        _host.id,
+        _host,
+      );
 
       setPendingOperations((prev) => new Set([...prev, rule.id]));
       let errorShown = false;
@@ -197,6 +214,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
           rule.autoStart, // Enable reconnect for auto-start rules
           terminalSettings,
           knownHosts,
+          sourceSessionId,
         );
         // Show error from result only if not already shown
         if (!result.success && result.error && !errorShown) {
@@ -214,7 +232,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
         });
       }
     },
-    [hostById, hosts, identities, keys, knownHosts, resolveEffectiveHost, setRuleStatus, startTunnel, t, terminalSettings],
+    [hostById, identities, keys, knownHosts, pickerHosts, resolveEffectiveHost, sessions, setRuleStatus, startTunnel, t, terminalSettings],
   );
 
   // Stop a port forwarding tunnel
@@ -788,7 +806,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
         <EditPanel
           rule={editingRule}
           draft={editDraft}
-          hosts={hosts}
+          hosts={pickerHosts}
           onDraftChange={(updates) =>
             setEditDraft((prev) => ({ ...prev, ...updates }))
           }
@@ -831,7 +849,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
               step={wizardStep}
               type={wizardType}
               draft={draftRule}
-              hosts={hosts}
+              hosts={pickerHosts}
               onTypeChange={(type) => {
                 setWizardType(type);
                 setDraftRule((prev) => ({ ...prev, type }));
@@ -882,7 +900,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
       {/* Host Selector Overlay */}
       {showHostSelector && (
         <SelectHostPanel
-          hosts={hosts}
+          hosts={pickerHosts}
           customGroups={_customGroups}
           selectedHostIds={
             showEditPanel
@@ -926,7 +944,7 @@ const PortForwarding: React.FC<PortForwardingProps> = ({
       {showNewForm && !showHostSelector && (
         <NewFormPanel
           draft={newFormDraft}
-          hosts={hosts}
+          hosts={pickerHosts}
           onDraftChange={(updates) =>
             setNewFormDraft((prev) => ({ ...prev, ...updates }))
           }

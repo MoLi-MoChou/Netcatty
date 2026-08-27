@@ -49,3 +49,10 @@ test("Vault import entry is disabled while an import is running", () => {
   assert.match(vaultViewLayoutSource, /disabled=\{importProgress\?\.status === "running"\}/);
   assert.match(vaultViewLayoutSource, /if \(importProgress\?\.status === "running"\) return;/);
 });
+
+test("port forwarding picker uses terminalHosts and never persists ephemeral hosts", () => {
+  assert.match(vaultViewLayoutSource, /hosts=\{terminalHosts \?\? hosts\}/);
+  assert.match(vaultViewLayoutSource, /sessions=\{sessions\}/);
+  assert.match(vaultViewLayoutSource, /if \(host\.ephemeral === true\) return;/);
+});
+

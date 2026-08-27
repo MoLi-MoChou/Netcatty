@@ -218,8 +218,9 @@ function registerExternalSessionHandlers(ipcMain, options) {
   });
 }
 
-function registerPortForwardingWorkerBridge(ipcMain) {
+function registerPortForwardingWorkerBridge(ipcMain, sessions) {
   const portForwardingBridge = require("../bridges/portForwardingBridge.cjs");
+  portForwardingBridge.init({ sessions });
   portForwardingBridge.registerHandlers(ipcMain);
 }
 
@@ -288,7 +289,7 @@ function main() {
       sshBridge.registerHandlers(ipcMain);
       terminalBridge.registerHandlers(ipcMain);
       sftpBridge.registerHandlers(ipcMain);
-      registerPortForwardingWorkerBridge(ipcMain);
+      registerPortForwardingWorkerBridge(ipcMain, sessions);
       transferBridge.registerHandlers(ipcMain);
       fileWatcherBridge.registerHandlers(ipcMain);
       compressUploadBridge.registerHandlers(ipcMain);

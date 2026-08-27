@@ -1215,6 +1215,34 @@ test("startPortForward drops stale identity paths for password-only auth", async
   assert.equal(jumpHosts[0]?.useSshAgent, false);
 });
 
+test("startPortForward forwards sourceSessionId and keeps an empty password", async () => {
+  const bridge = installBridgeStub();
+  const result = await startPortForward(
+    rule({ id: "rule-oneshot-reuse" }),
+    host({
+      id: "ephemeral-xsh",
+      hostname: "127.0.0.1",
+      username: "root",
+      port: 2222,
+      authMethod: "password",
+      password: "",
+      ephemeral: true,
+    }),
+    [],
+    [],
+    [],
+    () => undefined,
+    false,
+    undefined,
+    undefined,
+    "term-session-1",
+  );
+
+  assert.equal(result.success, true);
+  assert.equal(bridge.getOptions()?.sourceSessionId, "term-session-1");
+  assert.equal(bridge.getOptions()?.password, "");
+});
+
 test("startPortForward uses the system agent when a synced key cannot be decrypted", async () => {
   const bridge = installBridgeStub();
   const key: SSHKey = {

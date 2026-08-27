@@ -436,6 +436,7 @@ function createBridgeRegistrar(context) {
   
     sshBridge.init(deps);
     sftpBridge.init(deps);
+    portForwardingBridge.init(deps);
     transferBridge.init(deps);
     terminalBridge.init(deps);
     fileWatcherBridge.init(deps);
