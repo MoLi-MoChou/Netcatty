@@ -347,3 +347,15 @@ test("loopback ssh deep links enable legacy algorithms for bastion tunnels", () 
   );
   assert.equal(connectionHost.legacyAlgorithms, true);
 });
+
+test("buildSshDeepLinkEphemeralHost keeps an explicit empty password", () => {
+  const ephemeral = buildSshDeepLinkEphemeralHost(
+    { rawUrl: "ssh://root@127.0.0.1:60081", username: "root", hostname: "127.0.0.1", port: 60081, password: "" },
+    { id: "eph", now: 1 },
+  );
+  assert.equal(ephemeral.ephemeral, true);
+  assert.equal(ephemeral.savePassword, false);
+  assert.equal(ephemeral.password, "");
+  assert.equal(ephemeral.authMethod, "password");
+  assert.equal(ephemeral.legacyAlgorithms, true);
+});

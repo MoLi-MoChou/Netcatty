@@ -40,7 +40,7 @@ import { matchesKeyBinding } from '../../domain/models';
 import { resolveGroupDefaults, applyGroupDefaults } from '../../domain/groupConfig';
 import { upsertKnownHost } from '../../domain/knownHosts';
 import { materializeHostProxyProfile } from '../../domain/proxyProfiles';
-import { buildSshDeepLinkConnectionHost, buildSshDeepLinkEphemeralHost, buildSshDeepLinkEphemeralHostFromSaved, buildSshDeepLinkHostDraft, findSshDeepLinkHost, parseSshDeepLink } from '../../domain/sshDeepLink';
+import { buildSshDeepLinkConnectionHost, buildSshDeepLinkEphemeralHost, buildSshDeepLinkEphemeralHostFromSaved, buildSshDeepLinkHostDraft, findSshDeepLinkHost, isLoopbackHostname, parseSshDeepLink } from '../../domain/sshDeepLink';
 import { buildTelnetDeepLinkConnectionHost, buildTelnetDeepLinkEphemeralHostFromSaved, buildTelnetDeepLinkOpenHost, findTelnetDeepLinkHost, materializeTelnetDeepLinkMatchHost, parseTelnetDeepLink } from '../../domain/telnetDeepLink';
 import { buildJmsDeepLinkEphemeralHost, isSupportedJmsProtocol, parseJmsDeepLink } from '../../domain/jmsDeepLink';
 import { applyEphemeralHostsUpdate, splitHostsUpdateByEphemeral } from '../../domain/ephemeralHosts';
@@ -1481,17 +1481,28 @@ export function AppSideEffects() {
     });
     const matchedEffectiveHost = findSshDeepLinkHost(effectiveHosts, target);
 
-    if (target.password) {
-      // One-time-password link: connect ephemerally with exactly the URL
-      // credentials. A uniquely matched saved host still contributes its
-      // non-credential settings (proxy, jump chain, charset, ...). Build
-      // from the group-resolved effective host so the builder can clear
-      // `group` and block group credential inheritance from later
+    // Bastion / Xshell .xsh sessions land on loopback with no password in the
+    // URL. Xshell accepts an empty Enter at the Password: prompt and never
+    // persists the one-shot host — mirror that with an ephemeral empty-password
+    // connect instead of opening the vault host editor.
+    const useEphemeralEmptyPassword = typeof target.password !== "string" && isLoopbackHostname(target.hostname);
+    const connectTarget = typeof target.password === "string"
+      ? target
+      : useEphemeralEmptyPassword
+        ? { ...target, password: "" }
+        : target;
+
+    if (typeof connectTarget.password === "string") {
+      // One-time-password link (including explicit empty): connect ephemerally
+      // with exactly the URL credentials. A uniquely matched saved host still
+      // contributes its non-credential settings (proxy, jump chain, charset,
+      // ...). Build from the group-resolved effective host so the builder can
+      // clear `group` and block group credential inheritance from later
       // effective-host resolution.
       const draftOptions = { id: crypto.randomUUID(), now: Date.now() };
       const ephemeralHost = matchedEffectiveHost
-        ? buildSshDeepLinkEphemeralHostFromSaved(matchedEffectiveHost, target, draftOptions)
-        : buildSshDeepLinkEphemeralHost(target, draftOptions);
+        ? buildSshDeepLinkEphemeralHostFromSaved(matchedEffectiveHost, connectTarget, draftOptions)
+        : buildSshDeepLinkEphemeralHost(connectTarget, draftOptions);
       setEphemeralHosts((prev) => [...prev, ephemeralHost]);
       handleConnectToHost(ephemeralHost);
       return;
