@@ -17,3 +17,9 @@ test('workspace append resolves group defaults before creating host sessions', (
     /appendHostToWorkspace\([\s\S]*?resolveWorkspaceAppendHost\(target\.host\),[\s\S]*?rootDir/,
   );
 });
+
+test("VaultView receives terminalHosts and sessions for the port-forward picker", () => {
+  assert.match(source, /terminalHosts=\{terminalHosts\}/);
+  assert.match(source, /<VaultView[\s\S]*sessions=\{sessions\}/);
+});
+

@@ -27,6 +27,7 @@ const {
   getAvailableAgentSocket,
   prepareSystemSshAgentForAuth,
   isPassphraseCancelledError,
+  isPasswordProvided,
 } = require("./sshAuthHelper.cjs");
 const {
   createTransport,
@@ -34,6 +35,7 @@ const {
   returnTransport,
   discardTransport,
   findTransportByEndpoint,
+  resolveTransportForReuse,
   beginTransportDial,
   waitForTransportDial,
   completeTransportDial,
@@ -45,6 +47,50 @@ const {
 
 // Active port forwarding tunnels
 const portForwardingTunnels = new Map();
+
+/** Worker/main sessions map so PF can reuse a live terminal SSH connection. */
+let sessions = null;
+
+function init(deps = {}) {
+  sessions = deps.sessions || null;
+}
+
+/**
+ * Attach a password to ssh2 connect options. Empty string is a valid secret
+ * (bastion "Password:" + Enter); only null/undefined mean "no password".
+ */
+function attachPortForwardConnectPassword(connectOpts, password) {
+  if (isPasswordProvided(password)) {
+    connectOpts.password = password;
+  }
+  return connectOpts;
+}
+
+/**
+ * Prefer an explicit live terminal session (no endpoint fingerprint — auth
+ * digest/legacyAlgorithms often mismatch one-shot ssh:// / .xsh sessions).
+ * Fall back to a parked/shared transport for the computed endpoint.
+ */
+function resolvePortForwardReuseTransport({
+  sessions: sessionMap,
+  sourceSessionId,
+  reuseEndpoint,
+  reuseTransport = true,
+} = {}) {
+  if (reuseTransport === false) return null;
+  if (sourceSessionId && sessionMap) {
+    const live = resolveTransportForReuse({
+      sessions: sessionMap,
+      sourceSessionId,
+      kind: "channel",
+    });
+    if (live?.conn) return live;
+  }
+  if (reuseEndpoint) {
+    return findTransportByEndpoint(reuseEndpoint);
+  }
+  return null;
+}
 
 // Process-scoped authority metadata for renderer projections (#2288).
 // Epoch changes whenever this module (main or terminal worker) boots.
@@ -1170,6 +1216,7 @@ async function startPortForward(event, payload) {
     sshTcpConnectTimeoutMs,
     sshAuthReadyTimeoutMs,
     reuseTransport = true,
+    sourceSessionId,
   } = payload;
 
   // The rule is the durable identity; tunnelId is only one renderer's
@@ -1249,9 +1296,12 @@ async function startPortForward(event, payload) {
   // transport exists yet. Explicitly dedicated forwards remain isolated and
   // are not published into the shared pool.
   let pendingDialCoordination = null;
-  let existingTransport = reuseTransport !== false
-    ? findTransportByEndpoint(reuseEndpoint)
-    : null;
+  let existingTransport = resolvePortForwardReuseTransport({
+    sessions,
+    sourceSessionId,
+    reuseEndpoint,
+    reuseTransport,
+  });
   try {
     if (!existingTransport && reuseTransport !== false && typeof beginTransportDial === "function") {
       const coordination = beginTransportDial(reuseEndpoint, { kind: "channel" });
@@ -1478,9 +1528,7 @@ async function startPortForward(event, payload) {
         connectOpts.passphrase = effectivePassphrase;
       }
     }
-    if (password) {
-      connectOpts.password = password;
-    }
+    attachPortForwardConnectPassword(connectOpts, password);
 
     // Keep the discovered keys available to unrelated jump hosts even when
     // strict agent selection disables them for the final target.
@@ -2112,6 +2160,9 @@ function registerHandlers(ipcMain, options = {}) {
 }
 
 module.exports = {
+  init,
+  attachPortForwardConnectPassword,
+  resolvePortForwardReuseTransport,
   registerHandlers,
   startPortForward,
   stopPortForward,

@@ -205,6 +205,8 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
     HostDetailsPanel,
     hostListScrollRef,
     hosts,
+    terminalHosts,
+    sessions,
     HostTreeView,
     hotkeyScheme,
     identities,
@@ -1360,7 +1362,8 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
               >
                 <Suspense fallback={<VaultSectionLoading />}>
                   <PortForwarding
-                    hosts={hosts}
+                    hosts={terminalHosts ?? hosts}
+                    sessions={sessions}
                     keys={keys}
                     identities={identities}
                     knownHosts={knownHosts}
@@ -1368,7 +1371,10 @@ export function VaultViewLayout({ ctx }: { ctx: VaultViewLayoutContext }) {
                     customGroups={customGroups}
                     managedSources={managedSources}
                     groupConfigs={groupConfigs}
-                    onSaveHost={(host) => onUpdateHosts([...hosts, host])}
+                    onSaveHost={(host) => {
+                      if (host.ephemeral === true) return;
+                      onUpdateHosts([...hosts, host]);
+                    }}
                     onCreateGroup={(groupPath) =>
                       onUpdateCustomGroups(
                         Array.from(new Set([...customGroups, groupPath])),

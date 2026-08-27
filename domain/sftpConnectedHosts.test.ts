@@ -4,6 +4,7 @@ import test from "node:test";
 import type { Host, TerminalSession } from "./models";
 import {
   listSftpConnectedHosts,
+  mergePortForwardPickerHosts,
   resolveSftpTransferSourceSessionId,
   sftpHostEndpointsEqual,
   sftpPickerSessionsEqual,
@@ -402,5 +403,59 @@ test("sftpPickerSessionsEqual detects status, hostId, transport, and endpoint ch
       [session({ id: "s1", hostId: "a", status: "connected", hostname: "other.example.test" })],
     ),
     false,
+  );
+});
+
+test("mergePortForwardPickerHosts includes a connected one-shot host that is not in vault hosts", () => {
+  const vaultHosts = [host({ id: "saved", label: "Saved" })];
+  const sessions = [
+    session({
+      id: "s-xsh",
+      hostId: "ephemeral-xsh",
+      status: "connected",
+      hostname: "127.0.0.1",
+      username: "root",
+      port: 2222,
+    }),
+  ];
+
+  const merged = mergePortForwardPickerHosts(vaultHosts, sessions);
+  assert.equal(merged.some((entry) => entry.id === "saved"), true);
+  const oneShot = merged.find((entry) => entry.id === "ephemeral-xsh");
+  assert.ok(oneShot);
+  assert.equal(oneShot?.ephemeral, true);
+  assert.equal(oneShot?.hostname, "127.0.0.1");
+  assert.equal(oneShot?.username, "root");
+  assert.equal(oneShot?.port, 2222);
+  assert.equal(oneShot?.password, "");
+  assert.equal(
+    resolveSftpTransferSourceSessionId(sessions, new Map(merged.map((h) => [h.id, h])), "ephemeral-xsh", oneShot),
+    "s-xsh",
+  );
+});
+
+test("mergePortForwardPickerHosts prefers the live connected overlay over a vault host with the same id", () => {
+  const vaultHosts = [host({ id: "a", label: "Alpha", hostname: "vault.example.test", port: 22 })];
+  const sessions = [
+    session({
+      id: "s-a",
+      hostId: "a",
+      status: "connected",
+      hostname: "127.0.0.1",
+      port: 2201,
+    }),
+  ];
+
+  const merged = mergePortForwardPickerHosts(vaultHosts, sessions);
+  assert.equal(merged.filter((entry) => entry.id === "a").length, 1);
+  assert.equal(merged[0]?.hostname, "127.0.0.1");
+  assert.equal(merged[0]?.port, 2201);
+});
+
+test("mergePortForwardPickerHosts keeps terminalHosts when there are no reusable sessions", () => {
+  const vaultHosts = [host({ id: "saved", label: "Saved" })];
+  assert.deepEqual(
+    mergePortForwardPickerHosts(vaultHosts, []).map((entry) => entry.id),
+    ["saved"],
   );
 });

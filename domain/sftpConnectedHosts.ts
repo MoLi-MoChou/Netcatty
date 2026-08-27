@@ -196,3 +196,29 @@ export const resolveSftpTransferSourceSessionId = (
   }
   return lastMatch;
 };
+
+/**
+ * Host list for the port-forward picker: connected (possibly synthesized)
+ * one-shot SSH sessions first, then vault/ephemeral terminalHosts unique by id.
+ * Connected overlay wins so live hostname/user/port match sourceSessionId reuse.
+ */
+export const mergePortForwardPickerHosts = (
+  terminalHosts: ReadonlyArray<Host>,
+  sessions: ReadonlyArray<SftpPickerSessionFields> = [],
+): Host[] => {
+  const hostsById = new Map(terminalHosts.map((host) => [host.id, host]));
+  const connected = listSftpConnectedHosts(sessions, hostsById);
+  const seen = new Set<string>();
+  const merged: Host[] = [];
+  for (const entry of connected) {
+    if (seen.has(entry.host.id)) continue;
+    seen.add(entry.host.id);
+    merged.push(entry.host);
+  }
+  for (const host of terminalHosts) {
+    if (seen.has(host.id)) continue;
+    seen.add(host.id);
+    merged.push(host);
+  }
+  return merged;
+};

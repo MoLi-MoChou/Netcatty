@@ -586,6 +586,8 @@ function AppViewInner({ domains }: AppViewProps) {
         <AppVaultThemeSurface VaultViewContainer={VaultViewContainer}>
           <VaultView
             hosts={hosts}
+            terminalHosts={terminalHosts}
+            sessions={sessions}
             keys={keys}
             identities={identities}
             proxyProfiles={proxyProfiles}

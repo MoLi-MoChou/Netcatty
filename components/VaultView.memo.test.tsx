@@ -143,3 +143,55 @@ test("notes and connectionLogs churn cannot re-render VaultView", () => {
     true,
   );
 });
+
+test("VaultView re-renders when terminalHosts identity changes", () => {
+  const hosts = [{ id: "saved" }];
+  assert.equal(
+    vaultViewAreEqual(
+      { ...baseProps, hosts, terminalHosts: hosts } as never,
+      { ...baseProps, hosts, terminalHosts: [...hosts, { id: "ephemeral-1", ephemeral: true }] } as never,
+    ),
+    false,
+  );
+});
+
+test("VaultView re-renders when a connected SSH session appears for the PF picker", () => {
+  assert.equal(
+    vaultViewAreEqual(
+      { ...baseProps, sessions: [] } as never,
+      {
+        ...baseProps,
+        sessions: [{
+          id: "s-xsh",
+          hostId: "ephemeral-xsh",
+          status: "connected",
+          hostname: "127.0.0.1",
+          username: "root",
+          port: 2222,
+          protocol: "ssh",
+        }],
+      } as never,
+    ),
+    false,
+  );
+});
+
+test("VaultView ignores session title/cwd churn that does not affect the PF picker", () => {
+  const session = {
+    id: "s1",
+    hostId: "a",
+    status: "connected" as const,
+    hostname: "a.example.test",
+    username: "alice",
+    port: 22,
+    protocol: "ssh" as const,
+  };
+  assert.equal(
+    vaultViewAreEqual(
+      { ...baseProps, sessions: [{ ...session, title: "old" }] } as never,
+      { ...baseProps, sessions: [{ ...session, title: "new", cwd: "/tmp" }] } as never,
+    ),
+    true,
+  );
+});
+
