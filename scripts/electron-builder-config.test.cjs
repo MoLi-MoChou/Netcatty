@@ -128,7 +128,7 @@ test("Windows packaging includes the Windows Hello helper executable", () => {
 test("Windows package arch is controlled by pack script CLI flags", () => {
   assert.deepEqual(
     config.win.target,
-    ["nsis", "portable", "zip"],
+    ["nsis"],
     "win.target must not hard-code x64 and arm64 or pack:win-x64 will still invoke arm64 beforePack hooks",
   );
 });
@@ -274,16 +274,15 @@ test("rpm packaging uses gzip compression for RHEL-family package hosts", () => 
 test("Windows package arch is controlled by pack script CLI flags", () => {
   assert.deepEqual(
     config.win.target,
-    ["nsis", "portable", "zip"],
+    ["nsis"],
     "win.target must not hard-code x64 and arm64 or pack:win-x64 will still emit broken arm64 installers",
   );
 });
 
-test("windows packaging includes a zip archive target", () => {
-  assert.ok(
-    config.win.target.includes("zip"),
-    "windows package builds must publish a zip archive for no-install environments",
-  );
+test("windows packaging ships NSIS installer only", () => {
+  assert.deepEqual(config.win.target, ["nsis"]);
+  assert.equal(config.win.target.includes("zip"), false);
+  assert.equal(config.win.target.includes("portable"), false);
 });
 
 test("windows installer registers and removes Explorer folder context menu entries", () => {
@@ -331,13 +330,13 @@ test("windows zip follows the requested build architecture", () => {
 
   assert.deepEqual(
     targetsByArch.get(Arch.x64)?.slice().sort(),
-    ["nsis", "portable", "zip"].sort(),
-    "pack:win-x64 must publish x64 nsis, portable, and zip",
+    ["nsis"].sort(),
+    "pack:win-x64 must publish only the x64 NSIS installer",
   );
   assert.equal(
     targetsByArch.has(Arch.arm64),
     false,
-    "pack:win-x64 must not publish arm64 nsis/portable/zip without a dedicated arm64 job",
+    "pack:win-x64 must not publish arm64 installers without a dedicated arm64 job",
   );
 });
 

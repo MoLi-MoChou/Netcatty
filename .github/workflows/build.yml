@@ -321,18 +321,8 @@ jobs:
         with:
           name: netcatty-${{ matrix.name }}
           path: |
-            release/*.dmg
-            release/*.zip
             release/*.exe
-            release/*.msi
-            release/*.AppImage
-            release/*.deb
-            release/*.rpm
-            release/*.pacman
-            release/*.tar.gz
-            release/*.yml
-            release/*.blockmap
-          if-no-files-found: ignore
+          if-no-files-found: error
 
   # Dedicated job for Linux x64 — builds inside AlmaLinux 8 (GLIBC 2.28)
   # so native modules (node-pty, serialport) stay compatible with RHEL 8 /
