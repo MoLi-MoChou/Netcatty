@@ -328,3 +328,22 @@ test("buildSshNoteLinkOpenHost ignores unrelated external links", () => {
 
   assert.equal(openHost, null);
 });
+
+test("loopback ssh deep links enable legacy algorithms for bastion tunnels", () => {
+  const draft = buildSshDeepLinkHostDraft(
+    parseSshDeepLink("ssh://root@127.0.0.1:60609")!,
+    { id: "bastion-id", now: 123 },
+  );
+  assert.equal(draft.legacyAlgorithms, true);
+
+  const remote = buildSshDeepLinkHostDraft(
+    parseSshDeepLink("ssh://alice@example.com:2200")!,
+    { id: "remote-id", now: 123 },
+  );
+  assert.equal(remote.legacyAlgorithms, undefined);
+
+  const connectionHost = buildSshDeepLinkConnectionHost(
+    host({ hostname: "localhost", legacyAlgorithms: false }),
+  );
+  assert.equal(connectionHost.legacyAlgorithms, true);
+});
