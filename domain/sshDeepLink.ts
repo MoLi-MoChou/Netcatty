@@ -91,11 +91,20 @@ export const findSshDeepLinkHost = (
   return candidates.length === 1 ? candidates[0] : null;
 };
 
+const isLoopbackHostname = (hostname: string): boolean => {
+  const host = normalizeHostname(hostname);
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+};
+
 export const buildSshDeepLinkConnectionHost = (host: Host): Host => ({
   ...host,
   protocol: "ssh",
   moshEnabled: false,
   etEnabled: false,
+  // Bastion local-forwards (ops-client / Xshell .xsh) almost always speak
+  // legacy DH-SHA1 KEX. Default modern-only lists fail with
+  // "no matching key exchange algorithm", then the one-shot tunnel dies.
+  ...(isLoopbackHostname(host.hostname) ? { legacyAlgorithms: true } : {}),
 });
 
 export const buildSshDeepLinkOpenHost = (
@@ -165,6 +174,7 @@ export const buildSshDeepLinkHostDraft = (
   os: "linux",
   protocol: "ssh",
   createdAt: options.now,
+  ...(isLoopbackHostname(target.hostname) ? { legacyAlgorithms: true } : {}),
 });
 
 const normalizeBareHostReference = (value: string): string | null => {
