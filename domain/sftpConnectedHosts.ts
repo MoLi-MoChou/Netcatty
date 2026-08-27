@@ -51,6 +51,26 @@ const hostForLiveSession = (host: Host, session: SftpPickerSessionFields): Host 
   port: session.port ?? 22,
 });
 
+/**
+ * Synthesize a picker Host when the live session's hostId is not in the vault
+ * (ephemeral .xsh / ssh:// loopback). Loopback/legacy flags match the Xshell
+ * SSH path so a picker click can still auth if transport reuse misses.
+ */
+const hostFromSession = (session: SftpPickerSessionFields): Host => ({
+  id: session.hostId,
+  hostname: session.hostname,
+  username: session.username,
+  port: session.port ?? 22,
+  label: `${session.username}@${session.hostname}`,
+  protocol: session.protocol || "ssh",
+  ephemeral: true,
+  authMethod: "password",
+  password: "",
+  legacyAlgorithms: true,
+  tags: [],
+  os: "linux",
+});
+
 /** True when two hosts target the same SSH endpoint (hostname/user/port). */
 export const sftpHostEndpointsEqual = (
   a: Pick<Host, "hostname" | "username" | "port">,
@@ -111,16 +131,18 @@ export const listSftpConnectedHosts = (
 
   for (const session of sessions) {
     if (!isReusableSftpSourceSession(session)) continue;
-    const host = hostsById.get(session.hostId);
-    if (!host) continue;
-    if (host.protocol === "serial" || isPluginHostProtocol(host.protocol)) continue;
+    const vaultHost = hostsById.get(session.hostId);
+    if (vaultHost && (vaultHost.protocol === "serial" || isPluginHostProtocol(vaultHost.protocol))) continue;
     // Use session transport flags only. Vault hosts may still have mosh/et
     // defaults while the live terminal was opened as plain SSH (e.g. ssh://).
     // Do not filter sftpSudo here — picker display only; reuse is stripped later.
+    const host = vaultHost
+      ? hostForLiveSession(vaultHost, session)
+      : hostFromSession(session);
 
     // Later sessions overwrite earlier ones for the same hostId.
     bestByHostId.set(host.id, {
-      host: hostForLiveSession(host, session),
+      host,
       sessionId: session.id,
       status: "connected",
     });
@@ -165,9 +187,10 @@ export const resolveSftpTransferSourceSessionId = (
     if (session.hostId !== hostId) continue;
     if (!isReusableSftpSourceSession(session)) continue;
     const vaultHost = hostsById.get(session.hostId);
-    if (!vaultHost) continue;
-    if (vaultHost.protocol === "serial" || isPluginHostProtocol(vaultHost.protocol)) continue;
-    const liveHost = hostForLiveSession(vaultHost, session);
+    if (vaultHost && (vaultHost.protocol === "serial" || isPluginHostProtocol(vaultHost.protocol))) continue;
+    const liveHost = vaultHost
+      ? hostForLiveSession(vaultHost, session)
+      : hostFromSession(session);
     if (host && !sftpHostEndpointsEqual(liveHost, host)) continue;
     lastMatch = session.id;
   }

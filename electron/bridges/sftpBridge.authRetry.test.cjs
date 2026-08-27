@@ -11,11 +11,37 @@ const {
   getTransportStats,
   resetSshTransportRegistryForTests,
 } = require("./sshConnectionPool.cjs");
-const { shouldRegisterFreshSftpTransport } = require("./sftpBridge/openConnection.cjs");
+const {
+  shouldRegisterFreshSftpTransport,
+  shouldRetrySftpKeyboardInteractiveFirst,
+} = require("./sftpBridge/openConnection.cjs");
 
 test("sudo SFTP connections are never parked in the shared transport registry", () => {
   assert.equal(shouldRegisterFreshSftpTransport({ sudo: true, reuseTransport: true }), false);
   assert.equal(shouldRegisterFreshSftpTransport({ sudo: false, reuseTransport: true }), true);
+});
+
+test("shouldRetrySftpKeyboardInteractiveFirst treats empty-string password as provided", () => {
+  const err = Object.assign(new Error("All configured authentication methods failed"), {
+    level: "client-authentication",
+  });
+  const authConfig = { authPhase: { retryKeyboardInteractiveFirst: true } };
+  assert.equal(
+    shouldRetrySftpKeyboardInteractiveFirst({ password: "" }, authConfig, err),
+    true,
+  );
+  assert.equal(
+    shouldRetrySftpKeyboardInteractiveFirst({ password: "secret" }, authConfig, err),
+    true,
+  );
+  assert.equal(
+    shouldRetrySftpKeyboardInteractiveFirst({ password: undefined }, authConfig, err),
+    false,
+  );
+  assert.equal(
+    shouldRetrySftpKeyboardInteractiveFirst({}, authConfig, err),
+    false,
+  );
 });
 
 /** Build a minimal renderer sender for SFTP progress and auth prompt IPC. */
