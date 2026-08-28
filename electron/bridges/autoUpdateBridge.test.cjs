@@ -876,3 +876,43 @@ test("install handler installs directly when no main window is reachable", async
     global.setTimeout = originalSetTimeout;
   }
 });
+
+test("sets a generic GitHub latest.yml feed URL once when loading autoUpdater", async () => {
+  const feedCalls = [];
+  const autoUpdater = {
+    autoDownload: true,
+    autoInstallOnAppQuit: false,
+    logger: undefined,
+    on() {},
+    setFeedURL(opts) {
+      feedCalls.push(opts);
+    },
+  };
+
+  await withMocks({ autoUpdater }, async ({ fakeAutoUpdater }) => {
+    assert.equal(feedCalls.length, 1);
+    assert.deepEqual(feedCalls[0], {
+      provider: "generic",
+      url: "https://github.com/MoLi-MoChou/Netcatty/releases/latest/download",
+    });
+    assert.equal(fakeAutoUpdater.autoDownload, true);
+  });
+});
+
+test("continues loading autoUpdater when setFeedURL throws", async () => {
+  const autoUpdater = {
+    autoDownload: true,
+    autoInstallOnAppQuit: false,
+    logger: undefined,
+    on() {},
+    setFeedURL() {
+      throw new Error("feed unavailable");
+    },
+  };
+
+  await withMocks({ autoUpdater }, async ({ fakeAutoUpdater }) => {
+    // init() already called getAutoUpdater(); a throw from setFeedURL must not
+    // leave the updater unloaded or drop autoDownload.
+    assert.equal(fakeAutoUpdater.autoDownload, true);
+  });
+});
