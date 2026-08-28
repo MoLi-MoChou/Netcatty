@@ -1,7 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogle } from '@ai-sdk/google';
-import type { ProviderConfig, ProviderStyle } from '../types';
+import type { OpenAIApiFormat, ProviderConfig, ProviderStyle } from '../types';
 import { resolveOpenAIApi, resolveProviderStyle } from '../types';
 import { normalizeAnthropicSdkBaseURL } from '../anthropicCompatBaseUrl';
 import { normalizeOllamaSdkBaseURL } from '../ollamaCompatBaseUrl';
@@ -15,10 +15,17 @@ import {
   repairOpenAIChatToolResultPairsInBody,
   type OpenAIChatAssistantFields,
 } from '../providerContinuation';
+import {
+  buildOpenAIChatCompletionsFallbackRequest,
+  isOpenAIChatApi,
+  isOpenAIResponsesStyleRequest,
+  shouldRetryOpenAIChatCompletionsFallback,
+} from '../openaiChatContinuationGuard';
 
 export interface ProviderRequestContext {
   getOpenAIChatAssistantFields?: () => Array<OpenAIChatAssistantFields | undefined>;
   streamIdleTimeoutMs?: number;
+  openaiApi?: OpenAIApiFormat;
 }
 
 /**
@@ -416,6 +423,30 @@ function toSafeStatusText(message: string, fallback: string): string {
   return byteStringSafe.slice(0, 120) || fallback;
 }
 
+
+function rewriteChatCompletionsFallbackIfNeeded(
+  openaiApi: OpenAIApiFormat | undefined,
+  method: string,
+  url: string,
+  body: string | undefined,
+): { url: string; body: string | undefined } {
+  if (!isOpenAIChatApi(openaiApi) || method.toUpperCase() !== 'POST') {
+    return { url, body };
+  }
+  if (!isOpenAIResponsesStyleRequest(url, body)) {
+    return { url, body };
+  }
+  const fallback = buildOpenAIChatCompletionsFallbackRequest(url, body || '');
+  if (fallback.url === url && fallback.body === (body || '')) {
+    return { url, body };
+  }
+  console.warn('[Catty] OpenAI-compatible chat rewritten from Responses-style request to /chat/completions', {
+    from: url,
+    to: fallback.url,
+  });
+  return { url: fallback.url, body: fallback.body };
+}
+
 export function createBridgeFetchForSDK(
   providerId?: string,
   requestContext?: ProviderRequestContext,
@@ -451,27 +482,29 @@ export function createBridgeFetchForSDK(
     const headers = extractHeaders(resolvedInit?.headers);
     const body =
       resolvedInit?.body != null ? String(resolvedInit.body) : undefined;
-    const requestBody = body != null
+    let requestBody = body != null
       ? repairOpenAIChatToolResultPairsInBody(applyOpenAIChatContinuationToBody(
           body,
           requestContext?.getOpenAIChatAssistantFields?.() ?? [],
         ))
       : undefined;
+    const openaiApi = requestContext?.openaiApi;
+    ({ url, body: requestBody } = rewriteChatCompletionsFallbackIfNeeded(
+      openaiApi,
+      method,
+      url,
+      requestBody,
+    ));
 
     // Streaming path
     if (isStreamingRequest(resolvedInit)) {
-      const requestId = `sdk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      const captureOpenAIChatFields = createOpenAIChatStreamFieldCapture(requestContext);
-      const normalizeOpenAIChatToolCalls = createOpenAIChatToolCallNormalizer(requestId);
-
-      // Set up IPC event listeners BEFORE starting the stream to avoid
-      // missing early events.
       const encoder = new TextEncoder();
       let streamController: ReadableStreamDefaultController<Uint8Array> | null = null;
       const pendingChunks: Uint8Array[] = [];
       let pendingClose = false;
       let pendingError: Error | null = null;
-      let cleanedUp = false;
+      let activeRequestId = '';
+      let cleanup = () => {};
 
       const enqueueChunk = (chunk: Uint8Array) => {
         if (streamController) {
@@ -507,38 +540,56 @@ export function createBridgeFetchForSDK(
         }
       };
 
-      const unsubData = bridge.onAiStreamData(requestId, (data: string) => {
-        const normalizedData = normalizeOpenAIChatToolCalls(data);
-        captureOpenAIChatFields(normalizedData);
-        // Re-wrap as SSE so the SDK can parse it
-        enqueueChunk(encoder.encode(`data: ${normalizedData}\n\n`));
-      });
-      const unsubEnd = bridge.onAiStreamEnd(requestId, () => {
-        closeStream();
+      const startStreamAttempt = async (attemptUrl: string, attemptBody: string) => {
         cleanup();
-      });
-      const unsubError = bridge.onAiStreamError(
-        requestId,
-        (error: string) => {
-          errorStream(new Error(error));
+        pendingChunks.length = 0;
+        pendingClose = false;
+        pendingError = null;
+        const requestId = `sdk_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        activeRequestId = requestId;
+        const captureOpenAIChatFields = createOpenAIChatStreamFieldCapture(requestContext);
+        const normalizeOpenAIChatToolCalls = createOpenAIChatToolCallNormalizer(requestId);
+        let cleanedUp = false;
+        const unsubData = bridge.onAiStreamData(requestId, (data: string) => {
+          const normalizedData = normalizeOpenAIChatToolCalls(data);
+          captureOpenAIChatFields(normalizedData);
+          enqueueChunk(encoder.encode(`data: ${normalizedData}\n\n`));
+        });
+        const unsubEnd = bridge.onAiStreamEnd(requestId, () => {
+          closeStream();
           cleanup();
-        },
-      );
-
-      const cleanup = () => {
-        if (cleanedUp) return;
-        cleanedUp = true;
-        unsubData();
-        unsubEnd();
-        unsubError();
+        });
+        const unsubError = bridge.onAiStreamError(
+          requestId,
+          (error: string) => {
+            errorStream(new Error(error));
+            cleanup();
+          },
+        );
+        cleanup = () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
+          unsubData();
+          unsubEnd();
+          unsubError();
+        };
+        return bridge.aiChatStream(
+          requestId,
+          attemptUrl,
+          headers,
+          attemptBody,
+          providerId,
+          requestContext?.streamIdleTimeoutMs,
+        );
       };
 
-      // Handle abort
       if (resolvedInit?.signal) {
         resolvedInit.signal.addEventListener(
           'abort',
           () => {
-            bridge.aiChatCancel(requestId).catch(() => {});
+            if (activeRequestId) {
+              bridge.aiChatCancel(activeRequestId).catch(() => {});
+            }
             errorStream(new DOMException('Aborted', 'AbortError'));
             cleanup();
           },
@@ -546,21 +597,12 @@ export function createBridgeFetchForSDK(
         );
       }
 
-      // Start the stream — resolves once HTTP response headers arrive,
-      // returning the real status code.
-      const result = await bridge.aiChatStream(
-        requestId,
-        url,
-        headers,
-        requestBody || '',
-        providerId,
-        requestContext?.streamIdleTimeoutMs,
-      );
+      let attemptUrl = url;
+      let attemptBody = requestBody || '';
+      let result = await startStreamAttempt(attemptUrl, attemptBody);
 
       if (!result.ok) {
         cleanup();
-        // Cancel during proxy lookup / request start must stay an AbortError,
-        // not a synthetic 502 that the AI SDK treats as a provider failure.
         if (result.aborted || resolvedInit?.signal?.aborted) {
           throw new DOMException('Aborted', 'AbortError');
         }
@@ -573,11 +615,42 @@ export function createBridgeFetchForSDK(
         });
       }
 
-      // If the server returned a non-2xx status, return the error details
-      // as a JSON body in OpenAI-compatible format so the AI SDK's
-      // failedResponseHandler can extract the message properly.
-      // Also set a safe ASCII statusText as fallback for non-OpenAI SDK providers.
-      const statusCode = result.statusCode ?? 200;
+      let statusCode = result.statusCode ?? 200;
+      if (statusCode < 200 || statusCode >= 300) {
+        if (
+          shouldRetryOpenAIChatCompletionsFallback({
+            openaiApi,
+            method,
+            url: attemptUrl,
+            body: attemptBody,
+            statusCode,
+          })
+        ) {
+          const fallback = buildOpenAIChatCompletionsFallbackRequest(attemptUrl, attemptBody);
+          console.warn('[Catty] OpenAI-compatible chat HTTP 404 on Responses-style request; retrying as /chat/completions', {
+            from: attemptUrl,
+            to: fallback.url,
+          });
+          attemptUrl = fallback.url;
+          attemptBody = fallback.body;
+          result = await startStreamAttempt(attemptUrl, attemptBody);
+          if (!result.ok) {
+            cleanup();
+            if (result.aborted || resolvedInit?.signal?.aborted) {
+              throw new DOMException('Aborted', 'AbortError');
+            }
+            const errorMessage = result.error || 'Stream request failed';
+            const jsonBody = JSON.stringify({ error: { message: errorMessage } });
+            return new Response(jsonBody, {
+              status: 502,
+              statusText: toSafeStatusText(errorMessage, 'Bad Gateway'),
+              headers: { 'content-type': 'application/json' },
+            });
+          }
+          statusCode = result.statusCode ?? 200;
+        }
+      }
+
       if (statusCode < 200 || statusCode >= 300) {
         cleanup();
         const errorDetail = result.statusText || `HTTP ${statusCode}`;
@@ -604,7 +677,23 @@ export function createBridgeFetchForSDK(
     }
 
     // Non-streaming path
-    const result = await bridge.aiFetch(url, method, headers, requestBody, providerId);
+    let result = await bridge.aiFetch(url, method, headers, requestBody, providerId);
+    if (
+      shouldRetryOpenAIChatCompletionsFallback({
+        openaiApi,
+        method,
+        url,
+        body: requestBody,
+        statusCode: result.status,
+      })
+    ) {
+      const fallback = buildOpenAIChatCompletionsFallbackRequest(url, requestBody || '');
+      console.warn('[Catty] OpenAI-compatible chat HTTP 404 on Responses-style request; retrying as /chat/completions', {
+        from: url,
+        to: fallback.url,
+      });
+      result = await bridge.aiFetch(fallback.url, method, headers, fallback.body, providerId);
+    }
 
     return new Response(result.data, {
       status: result.status,
@@ -665,7 +754,11 @@ export function createModelFromConfig(
 ) {
   // Use placeholder API key — the main process will inject the real key
   const safeApiKey = config.apiKey ? API_KEY_PLACEHOLDER : undefined;
-  const customFetch = createBridgeFetchForSDK(config.id, requestContext);
+  const openaiApi = resolveOpenAIApi(config);
+  const customFetch = createBridgeFetchForSDK(config.id, {
+    ...requestContext,
+    openaiApi: requestContext?.openaiApi ?? openaiApi,
+  });
   const modelId = config.defaultModel || '';
   const style = resolveProviderStyle(config);
   const { baseURL, apiKey } = resolveProviderEndpoint(config, style, safeApiKey);
@@ -679,7 +772,7 @@ export function createModelFromConfig(
       });
       // Chat Completions stays the default so OpenAI-compatible proxies keep
       // working. Responses is opt-in for relays that cache better on /v1/responses.
-      return resolveOpenAIApi(config) === 'responses'
+      return openaiApi === 'responses'
         ? openai.responses(modelId)
         : openai.chat(modelId);
     }

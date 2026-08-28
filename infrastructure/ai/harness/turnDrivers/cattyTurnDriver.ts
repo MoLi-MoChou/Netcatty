@@ -12,6 +12,7 @@ import {
   isWebSearchReady,
   normalizeCommandTimeoutSeconds,
   normalizeResponseIdleTimeoutSeconds,
+  resolveOpenAIApi,
 } from '../../types';
 import {
   buildCattyReasoningProviderOptions,
@@ -198,10 +199,12 @@ async function runCattyTurn(input: CattyTurnInput, ctx: TurnDriverContext): Prom
     type: 'context_snapshot',
     snapshot: promptContext,
   } as import('../types').AgentEvent);
+  const openaiApi = resolveOpenAIApi(context.activeProvider);
   const continuationContext = createContinuationContext(
     context.activeProvider.id,
     context.activeProvider.providerId,
     activeModelId,
+    openaiApi,
   );
 
   ui.setStreamingForScope(sessionId, true);
@@ -242,6 +245,7 @@ async function runCattyTurn(input: CattyTurnInput, ctx: TurnDriverContext): Prom
         {
           getOpenAIChatAssistantFields: () => continuationContext.openAIChatAssistantFields,
           streamIdleTimeoutMs: responseIdleTimeoutMs,
+          openaiApi,
         },
       );
     } catch (e) {
@@ -435,6 +439,7 @@ async function runCattyTurn(input: CattyTurnInput, ctx: TurnDriverContext): Prom
         advancedParams: context.activeProvider?.advancedParams,
         reasoningProviderOptions,
         continuationContext,
+        openaiApi,
         turnId: ctx.turnId,
         commandTimeoutMs,
         responseIdleTimeoutMs,

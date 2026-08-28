@@ -58,6 +58,15 @@ test('buildCattyReasoningProviderOptions omits reasoningEffort for non-reasoning
   assert.equal(openaiModelSupportsNoneReasoning('gpt-5.1-chat-latest'), false);
 });
 
+test('qwen3.5-plus does not send reasoningEffort on OpenAI-compatible chat', () => {
+  assert.equal(openaiModelLikelySupportsReasoning('qwen3.5-plus'), false);
+  assert.equal(
+    buildCattyReasoningProviderOptions({ providerId: 'qwen' }, 'high', 'qwen3.5-plus'),
+    undefined,
+  );
+  assert.deepEqual(cattyReasoningLevelsForSelection({ providerId: 'qwen' }, 'qwen3.5-plus'), []);
+});
+
 test('cattyReasoningLevelsForSelection hides the chip unless the model can take effort', () => {
   assert.equal(openaiModelLikelySupportsReasoning('gpt-4o'), false);
   assert.equal(openaiModelLikelySupportsReasoning('gpt-5-chat-latest'), false);
