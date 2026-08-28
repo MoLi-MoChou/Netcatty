@@ -47,6 +47,55 @@ export interface UseUpdateCheckResult {
   isUpdateDemoMode: boolean;
 }
 
+export interface FeedCheckResponse {
+  error?: string | null;
+  supported?: boolean;
+  checking?: boolean;
+  available?: boolean;
+  version?: string | null;
+}
+
+export type FeedCheckAction =
+  | { type: 'none' }
+  | { type: 'surface-error'; error: string }
+  | { type: 'available' }
+  | { type: 'up-to-date' };
+
+/**
+ * Decide how a manual Check for Updates should incorporate electron-updater's
+ * result. GitHub REST already determined `nextStatus`; feed errors such as
+ * ERR_UPDATER_NO_PUBLISHED_VERSIONS must not clobber an available version.
+ */
+export function applyFeedCheckResult(
+  nextStatus: ManualCheckStatus,
+  res: FeedCheckResponse | null | undefined,
+  dismissedVersion: string | null,
+): FeedCheckAction {
+  if (!res) return { type: 'none' };
+  if (res.error && res.supported !== false) {
+    // Only surface feed errors when GitHub API itself failed. If GitHub already
+    // found a release, keep showing that version instead of flashing
+    // "No published versions on GitHub".
+    if (nextStatus === 'error') {
+      return { type: 'surface-error', error: res.error };
+    }
+    return { type: 'none' };
+  }
+  if (res.checking) {
+    return { type: 'none' };
+  }
+  if (nextStatus === 'error' && res.available) {
+    if (res.version && res.version === dismissedVersion) {
+      return { type: 'none' };
+    }
+    return { type: 'available' };
+  }
+  if (nextStatus === 'error' && !res.error && !res.available) {
+    return { type: 'up-to-date' };
+  }
+  return { type: 'none' };
+}
+
 /**
  * Hook for managing update checks
  * - Automatically checks for updates on startup (with delay)
@@ -462,33 +511,29 @@ export function useUpdateCheck(options?: { autoUpdateEnabled?: boolean; enabled?
       //    environments where api.github.com is blocked would never attempt
       //    the auto-download path.
       void netcattyBridge.get()?.checkForUpdate?.().then((res) => {
-        if (res?.error && res?.supported !== false) {
-          // Surface actual download-feed errors; unsupported platforms
-          // (res.supported === false) should keep autoDownloadStatus at
-          // 'idle' so the manual download link shows.
+        const action = applyFeedCheckResult(
+          nextStatus,
+          res,
+          localStorageAdapter.readString(STORAGE_KEY_UPDATE_DISMISSED_VERSION),
+        );
+        if (action.type === 'surface-error') {
+          // Surface actual download-feed errors only when GitHub API failed;
+          // unsupported platforms keep autoDownloadStatus at 'idle' so the
+          // manual download link shows.
           setUpdateState((prev) => ({
             ...prev,
             autoDownloadStatus: 'error',
-            downloadError: res.error,
+            downloadError: action.error,
           }));
-        } else if (res?.checking) {
-          // Another check is already in flight — don't change status; the
-          // in-flight check will resolve via IPC events.
-        } else if (nextStatus === 'error' && res?.available) {
+        } else if (action.type === 'available') {
           // GitHub API failed but electron-updater found an update.
-          // Respect dismissed versions before surfacing.
-          const dismissed = localStorageAdapter.readString(STORAGE_KEY_UPDATE_DISMISSED_VERSION);
-          if (res.version && res.version === dismissed) {
-            // User dismissed this version — don't re-surface
-          } else {
-            setUpdateState((prev) => ({
-              ...prev,
-              manualCheckStatus: 'available',
-              hasUpdate: true,
-              error: null,
-            }));
-          }
-        } else if (nextStatus === 'error' && !res?.error && !res?.available) {
+          setUpdateState((prev) => ({
+            ...prev,
+            manualCheckStatus: 'available',
+            hasUpdate: true,
+            error: null,
+          }));
+        } else if (action.type === 'up-to-date') {
           // GitHub API failed but electron-updater says no update available.
           // Clear the error status so Settings doesn't stay stuck in error state.
           setUpdateState((prev) => ({

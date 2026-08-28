@@ -101,6 +101,8 @@ let _isChecking = false;
  * @type {{ status: 'idle' | 'downloading' | 'ready' | 'error', percent: number, error: string | null, version: string | null, isChecking: boolean }}
  */
 let _lastStatus = { status: 'idle', percent: 0, error: null, version: null, isChecking: false };
+const GENERIC_UPDATE_FEED_URL = "https://github.com/MoLi-MoChou/Netcatty/releases/latest/download";
+
 function getAutoUpdater() {
   if (_autoUpdater) return _autoUpdater;
   try {
@@ -109,6 +111,19 @@ function getAutoUpdater() {
     autoUpdater.autoInstallOnAppQuit = false;
     // Silence the default electron-log transport (we log ourselves).
     autoUpdater.logger = null;
+    // Fetch latest.yml directly instead of listing GitHub releases (the
+    // github provider can fail with ERR_UPDATER_NO_PUBLISHED_VERSIONS even
+    // when /releases/latest and latest.yml are fine).
+    try {
+      autoUpdater.setFeedURL({
+        provider: "generic",
+        url: GENERIC_UPDATE_FEED_URL,
+      });
+    } catch (feedErr) {
+      console.warn("[AutoUpdate] setFeedURL failed:", feedErr?.message || feedErr);
+    }
+    // Re-apply so a feed swap cannot drop the user's autoDownload preference.
+    autoUpdater.autoDownload = readAutoUpdatePreference();
     _autoUpdater = autoUpdater;
     return autoUpdater;
   } catch (err) {
