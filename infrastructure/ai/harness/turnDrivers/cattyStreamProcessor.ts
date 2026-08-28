@@ -8,7 +8,7 @@ import {
 } from '../../cattyRequestTooLargeRetry';
 import { mapCattyStreamChunkToAgentEvents } from '../agentEventAdapter';
 import type { AgentEvent } from '../types';
-import type { ProviderAdvancedParams } from '../../types';
+import type { ChatMessage, OpenAIApiFormat, ProviderAdvancedParams } from '../../types';
 import type { CattyReasoningProviderOptions } from '../../cattyReasoning';
 import { createModelFromConfig } from '../../sdk/providers';
 import type { CattyToolsBundle } from '../capabilityTools';
@@ -22,6 +22,11 @@ import {
   withProviderContinuationSource,
   type ProviderContinuation,
 } from '../../providerContinuation';
+import {
+  cattyStreamSystemPromptFields,
+  continuationForOpenAIApi,
+  isOpenAIChatLanguageModel,
+} from '../../openaiChatContinuationGuard';
 import {
   formatToolErrorContent,
   generateId,
@@ -39,7 +44,6 @@ import {
   type ToolOutputDeniedChunk,
   type ToolResultChunk,
 } from '../../aiChatStreamingSupport';
-import type { ChatMessage } from '../../types';
 
 export type CattyModel = ReturnType<typeof createModelFromConfig>;
 
@@ -60,6 +64,7 @@ export interface ProcessCattyStreamInput {
   advancedParams?: ProviderAdvancedParams;
   reasoningProviderOptions?: CattyReasoningProviderOptions;
   continuationContext?: CattyProviderContinuationContext;
+  openaiApi?: OpenAIApiFormat;
   turnId?: string;
   commandTimeoutMs?: number;
   responseIdleTimeoutMs?: number;
@@ -105,6 +110,7 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
     advancedParams,
     reasoningProviderOptions,
     continuationContext,
+    openaiApi,
     turnId,
     commandTimeoutMs,
     responseIdleTimeoutMs,
@@ -120,7 +126,7 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
   const result = streamText({
     model,
     messages: sdkMessages,
-    instructions: systemPrompt,
+    ...cattyStreamSystemPromptFields(model, systemPrompt),
     tools,
     toolsContext,
     runtimeContext,
@@ -252,7 +258,16 @@ export async function processCattyStream(input: ProcessCattyStreamInput): Promis
     thinkingText = '',
   ) => {
     if (!continuation && !thinkingText) return;
-    const sourcedContinuation = withProviderContinuationSource(continuation, continuationContext?.source);
+    const api: OpenAIApiFormat | undefined = openaiApi
+      ?? (isOpenAIChatLanguageModel(model)
+        ? 'chat'
+        : String((model as { provider?: string }).provider ?? '').startsWith('openai.responses')
+          ? 'responses'
+          : 'chat');
+    const sourcedContinuation = withProviderContinuationSource(
+      continuationForOpenAIApi(continuation, api),
+      continuationContext?.source,
+    );
     ui.updateMessageById(streamSessionId, messageId, msg => {
       const providerContinuation = mergeProviderContinuation(msg.providerContinuation, sourcedContinuation);
       return {

@@ -4,6 +4,7 @@ import type {
   ProviderContinuationOptions,
   ProviderContinuationSource,
 } from './providerContinuation';
+import type { OpenAIApiFormat } from './types';
 
 /** Shape of a text/text-delta chunk from the Vercel AI SDK stream. */
 export interface TextDeltaChunk {
@@ -221,6 +222,7 @@ export interface DefaultTargetSessionHint extends TerminalSessionInfo {
 export interface CattyProviderContinuationContext {
   source: ProviderContinuationSource;
   openAIChatAssistantFields: Array<OpenAIChatAssistantFields | undefined>;
+  openaiApi?: OpenAIApiFormat;
 }
 
 export type AssistantContentPart =

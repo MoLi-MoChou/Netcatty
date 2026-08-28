@@ -22,6 +22,11 @@ import {
   type ProviderContinuation,
 } from '../../providerContinuation';
 import {
+  continuationForOpenAIApi,
+  stripOpenAIResponsesAssistantFields,
+} from '../../openaiChatContinuationGuard';
+import type { OpenAIApiFormat } from '../../types';
+import {
   toAssistantModelContent,
   type AssistantContentPart,
   type CattyProviderContinuationContext,
@@ -132,16 +137,22 @@ export function buildCattySdkMessages(input: BuildCattySdkMessagesInput): ModelM
         content: buildHistoricalUserReplayContent(boundedContent, messageAttachments ?? []),
       });
     } else if (m.role === 'assistant') {
-      const activeContinuation = isProviderContinuationForSource(
-        m.providerContinuation,
-        continuationContext.source,
-      )
-        ? m.providerContinuation
-        : undefined;
-      const openAIChatAssistantFields = getOpenAIChatAssistantFieldsForHistoryMessage(
+      const activeContinuation = continuationForOpenAIApi(
+        isProviderContinuationForSource(
+          m.providerContinuation,
+          continuationContext.source,
+        )
+          ? m.providerContinuation
+          : undefined,
+        continuationContext.openaiApi,
+      );
+      const rawOpenAIChatAssistantFields = getOpenAIChatAssistantFieldsForHistoryMessage(
         m,
         continuationContext.source,
       );
+      const openAIChatAssistantFields = continuationContext.openaiApi === 'responses'
+        ? rawOpenAIChatAssistantFields
+        : stripOpenAIResponsesAssistantFields(rawOpenAIChatAssistantFields);
       if (m.toolCalls?.length) {
         const resolvedToolCalls = resolvedToolCallsByAssistant.get(m);
         const resolvedCalls = resolvedToolCalls
@@ -300,6 +311,7 @@ export function createContinuationContext(
   providerConfigId: string,
   providerType: string,
   modelId: string,
+  openaiApi: OpenAIApiFormat = 'chat',
 ): CattyProviderContinuationContext {
   return {
     source: {
@@ -308,6 +320,7 @@ export function createContinuationContext(
       modelId,
     },
     openAIChatAssistantFields: [],
+    openaiApi,
   };
 }
 
