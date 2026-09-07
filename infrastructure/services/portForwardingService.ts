@@ -44,6 +44,7 @@ export interface PortForwardingConnection {
   reconnectDueAt?: number;
   reconnectTimerCallback?: () => void;
   reconnectStartAuthorized?: boolean;
+  reconnectSuppressed?: boolean;
   syncedShouldReconnect?: () => boolean;
   syncedOnStatusChange?: (
     status: PortForwardingRule['status'],
@@ -312,6 +313,7 @@ const preserveFailedStopConnection = (
     status: 'error' as const,
   };
   failedConnection.reconnectStartAuthorized = false;
+  failedConnection.reconnectSuppressed = true;
   failedConnection.status = 'error';
   failedConnection.error = error;
   activeConnections.set(ruleId, failedConnection);
@@ -857,7 +859,10 @@ export const startPortForward = async (
     onStatusChange(existingConnection.status, existingConnection.error);
     return { success: true };
   }
-  if (existingConnection) existingConnection.reconnectStartAuthorized = false;
+  if (existingConnection) {
+    existingConnection.reconnectStartAuthorized = false;
+    existingConnection.reconnectSuppressed = false;
+  }
   
   // Clear any existing reconnect timer
   clearReconnectTimer(rule.id);
