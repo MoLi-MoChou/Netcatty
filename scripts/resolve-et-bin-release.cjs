@@ -32,7 +32,10 @@ function validateReleaseTag(tag) {
 }
 
 function parseRepository(env) {
-  const owner = env.ET_BIN_OWNER || (env.GITHUB_REPOSITORY || "").split("/")[0] || "binaricat";
+  // Canonical default is always binaricat/Netcatty-et-bin (same pattern as
+  // MoshCatty). Forks must not derive owner from GITHUB_REPOSITORY or resolve
+  // fails with 404 on <fork>/Netcatty-et-bin. Override via ET_BIN_OWNER/REPO.
+  const owner = env.ET_BIN_OWNER || "binaricat";
   const repo = env.ET_BIN_REPO || "Netcatty-et-bin";
   return { owner, repo };
 }
