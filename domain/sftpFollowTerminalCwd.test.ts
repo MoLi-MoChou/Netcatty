@@ -1,14 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
+  isFollowOriginStillCurrent,
   mergeLatestFollowTerminalCwdHostSetting,
   resolveHostFollowTerminalCwd,
   resolveSftpFollowTerminalCwdTargetHost,
-  runInitialFollowTerminalCwdSync,
   shouldApplyFollowTerminalCwdSyncResult,
   shouldClearBlockedFollowOnReach,
   shouldFollowTerminalCwdNavigate,
+  shouldInvalidateFollowBookkeepingOnCwdChange,
+  shouldLatchInitialFollowInterruption,
+  shouldReleaseInitialFollowSyncAttempt,
+  shouldResetInitialFollowTerminalCwdSync,
 } from "./sftpFollowTerminalCwd";
 
 const base = {
@@ -20,10 +23,6 @@ const base = {
   hasActiveWork: false,
   isConnected: true,
 };
-
-const readComponentSource = (relativePath: string) => (
-  readFileSync(new URL(relativePath, import.meta.url), "utf8")
-);
 
 test("shouldFollowTerminalCwdNavigate returns true when follow is on and paths differ", () => {
   assert.equal(shouldFollowTerminalCwdNavigate(base), true);
@@ -268,6 +267,75 @@ test("shouldApplyFollowTerminalCwdSyncResult rejects results after follow is una
   );
 });
 
+test("isFollowOriginStillCurrent treats a missing origin as bound to the live focused terminal", () => {
+  assert.equal(isFollowOriginStillCurrent({
+    expectedOriginId: null,
+    liveOriginId: null,
+  }), true);
+  assert.equal(isFollowOriginStillCurrent({
+    expectedOriginId: null,
+    liveOriginId: "mosh-b",
+  }), false);
+  assert.equal(isFollowOriginStillCurrent({
+    expectedOriginId: "mosh-a",
+    liveOriginId: "mosh-b",
+  }), false);
+  assert.equal(isFollowOriginStillCurrent({
+    expectedOriginId: "mosh-a",
+    liveOriginId: "mosh-a",
+  }), true);
+});
+
+test("shouldApplyFollowTerminalCwdSyncResult rejects a null origin after focus appears", () => {
+  assert.equal(
+    shouldApplyFollowTerminalCwdSyncResult({
+      syncGeneration: 2,
+      currentGeneration: 2,
+      followEnabled: true,
+      canFollow: true,
+      expectedSessionId: null,
+      liveSessionId: null,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldApplyFollowTerminalCwdSyncResult({
+      syncGeneration: 2,
+      currentGeneration: 2,
+      followEnabled: true,
+      canFollow: true,
+      expectedSessionId: null,
+      liveSessionId: "mosh-b",
+    }),
+    false,
+  );
+});
+
+test("shouldApplyFollowTerminalCwdSyncResult rejects results after the focused session changes", () => {
+  assert.equal(
+    shouldApplyFollowTerminalCwdSyncResult({
+      syncGeneration: 2,
+      currentGeneration: 2,
+      followEnabled: true,
+      canFollow: true,
+      expectedSessionId: "session-a",
+      liveSessionId: "session-b",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldApplyFollowTerminalCwdSyncResult({
+      syncGeneration: 2,
+      currentGeneration: 2,
+      followEnabled: true,
+      canFollow: true,
+      expectedSessionId: "session-a",
+      liveSessionId: "session-a",
+    }),
+    true,
+  );
+});
+
 test("shouldApplyFollowTerminalCwdSyncResult rejects results for an old connection", () => {
   assert.equal(
     shouldApplyFollowTerminalCwdSyncResult({
@@ -335,99 +403,149 @@ test("shouldApplyFollowTerminalCwdSyncResult allows missing live cwd when target
   );
 });
 
-test("SftpSidePanel follow effect is not keyed by SFTP path changes", () => {
-  const source = readComponentSource("../SftpSidePanel.tsx");
-  const followEffect = source.match(
-    /useEffect\(\(\) => \{\n\s+if \(!effectiveFollowTerminalCwd[\s\S]*?void syncFollowToTerminalCwd\(\);\n\s+\}, \[\n(?<deps>[\s\S]*?)\n\s+\]\);/,
+test("follow bookkeeping keeps handled state across hidden-panel null cwd transitions", () => {
+  // Hidden panels receive activeTerminalCwd={null} and get the last live value
+  // back on reshow: the visibility transitions may not drop handled follow
+  // bookkeeping when the cwd did not actually change.
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: null,
+      lastCwd: "/home/user/project",
+      isVisible: false,
+    }),
+    false,
   );
-
-  assert.ok(followEffect?.groups?.deps);
-  assert.match(followEffect.groups.deps, /activeTerminalCwd/);
-  assert.match(followEffect.groups.deps, /connectionId/);
-  assert.doesNotMatch(followEffect.groups.deps, /currentPath|connectionPath/);
-});
-
-test("SftpSidePanel passes a stale-result guard into automatic follow navigation", () => {
-  const source = readComponentSource("../SftpSidePanel.tsx");
-
-  assert.match(
-    source,
-    /navigateTo\("left", terminalCwd, \{\n\s+shouldApply: shouldApplyCurrentFollowSync,\n\s+\}\)/,
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: "/home/user/project",
+      lastCwd: "/home/user/project",
+      isVisible: false,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: "/home/user/project",
+      lastCwd: "/home/user/project",
+      isVisible: true,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: null,
+      lastCwd: null,
+      isVisible: false,
+    }),
+    false,
   );
 });
 
-test("SftpSidePanel invalidates follow state whenever the follow toggle changes", () => {
-  const source = readComponentSource("../SftpSidePanel.tsx");
-  const toggleHandler = source.match(
-    /const handleToggleFollowTerminalCwd = useCallback\(\(\) => \{[\s\S]*?\}, \[effectiveFollowTerminalCwd/,
+test("follow bookkeeping invalidates on a real terminal cwd change", () => {
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: "/home/user/other",
+      lastCwd: "/home/user/project",
+      isVisible: true,
+    }),
+    true,
   );
-
-  assert.ok(toggleHandler);
-  assert.match(toggleHandler[0], /invalidateInFlightFollowSync\(\);/);
-  assert.doesNotMatch(toggleHandler[0], /if \(!nextEnabled\)/);
-});
-
-test("first-open sync navigates from stale home to a backend-confirmed cwd", async () => {
-  let handled = null;
-  let blocked = null;
-  let navigatedTo = null;
-  const connection = { id: "conn-1", currentPath: "/home/alice", status: "connected" };
-
-  const completed = await runInitialFollowTerminalCwdSync({
-    expectedConnectionId: "conn-1",
-    staleTerminalCwd: "/home/alice",
-    getFreshTerminalCwd: async () => "/srv/project",
-    isEligible: () => true,
-    getConnection: () => connection,
-    navigate: async (cwd, shouldApply) => {
-      assert.equal(shouldApply(), true);
-      navigatedTo = cwd;
-      connection.currentPath = cwd;
-      return "reached";
-    },
-    setHandled: (value) => { handled = value; },
-    setBlocked: (value) => { blocked = value; },
-  });
-
-  assert.equal(completed, true);
-  assert.equal(navigatedTo, "/srv/project");
-  assert.deepEqual(handled, { connectionId: "conn-1", terminalCwd: "/home/alice" });
-  assert.equal(blocked, null);
-});
-
-test("first-open sync can retry a failed probe and cancels stale results", async () => {
-  let attempts = 0;
-  let eligible = true;
-  let navigations = 0;
-  const connection = { id: "conn-1", currentPath: "/home/alice", status: "connected" };
-  const run = () => runInitialFollowTerminalCwdSync({
-    expectedConnectionId: "conn-1",
-    staleTerminalCwd: "/home/alice",
-    getFreshTerminalCwd: async () => (++attempts === 1 ? null : "/srv/project"),
-    isEligible: () => eligible,
-    getConnection: () => connection,
-    navigate: async () => { navigations += 1; return "reached"; },
-    setHandled: () => {},
-    setBlocked: () => {},
-  });
-
-  assert.equal(await run(), false);
-  assert.equal(await run(), true);
-  assert.equal(attempts, 2);
-  assert.equal(navigations, 1);
-
-  eligible = false;
-  assert.equal(await run(), false);
-  assert.equal(navigations, 1);
-});
-
-test("SftpSidePanel bounds first-open retries and disables cached fallback", () => {
-  const source = readComponentSource("../SftpSidePanel.tsx");
-
-  assert.match(
-    source,
-    /preferFreshBackend: true,\n\s+allowRendererFallback: false/,
+  // A cwd that changed while the panel was hidden still invalidates on reshow.
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: "/home/user/other",
+      lastCwd: null,
+      isVisible: true,
+    }),
+    true,
   );
-  assert.match(source, /initialFollowRetryRef\.current\.attempts >= 3/);
-  assert.match(source, /setInitialFollowRetryNonce\(\(value\) => value \+ 1\)/);
+  // A `null` while the surface is visible means the linked terminal session
+  // changed (or closed) and its cwd cache is empty: in-flight follow results
+  // of the previous session must be invalidated.
+  assert.equal(
+    shouldInvalidateFollowBookkeepingOnCwdChange({
+      nextCwd: null,
+      lastCwd: "/home/user/project",
+      isVisible: true,
+    }),
+    true,
+  );
+});
+
+test("first-open sync reset re-arms on a replaced connection", () => {
+  assert.equal(
+    shouldResetInitialFollowTerminalCwdSync({
+      isVisible: true,
+      ownerPanelOpen: true,
+      connectionId: "conn-2",
+      trackedConnectionId: "conn-1",
+    }),
+    true,
+  );
+});
+
+test("first-open sync reset re-arms after a fresh open on the same connection", () => {
+  assert.equal(
+    shouldResetInitialFollowTerminalCwdSync({
+      isVisible: false,
+      ownerPanelOpen: false,
+      connectionId: "conn-1",
+      trackedConnectionId: "conn-1",
+    }),
+    true,
+  );
+});
+
+test("first-open sync reset survives hiding the surface while the owner panel stays open", () => {
+  // Terminal tab switches / side-panel tool switches keep the panel mounted
+  // and open: the user's browsed directory and filename filter must survive.
+  assert.equal(
+    shouldResetInitialFollowTerminalCwdSync({
+      isVisible: false,
+      ownerPanelOpen: true,
+      connectionId: "conn-1",
+      trackedConnectionId: "conn-1",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldResetInitialFollowTerminalCwdSync({
+      isVisible: true,
+      ownerPanelOpen: true,
+      connectionId: "conn-1",
+      trackedConnectionId: "conn-1",
+    }),
+    false,
+  );
+});
+
+test("first-open sync attempt is released while visible or after the owner panel closed", () => {
+  assert.equal(shouldReleaseInitialFollowSyncAttempt({ isVisible: true, ownerPanelOpen: true }), true);
+  assert.equal(shouldReleaseInitialFollowSyncAttempt({ isVisible: true, ownerPanelOpen: false }), true);
+  assert.equal(shouldReleaseInitialFollowSyncAttempt({ isVisible: false, ownerPanelOpen: false }), true);
+});
+
+test("first-open sync attempt stays consumed while hidden with the owner panel open", () => {
+  // Terminal tab switch while the fresh-CWD probe is still pending: the
+  // interrupted attempt must not re-arm, or returning to the tab re-runs the
+  // first-open sync and navigates away from the browsed directory.
+  assert.equal(shouldReleaseInitialFollowSyncAttempt({ isVisible: false, ownerPanelOpen: true }), false);
+});
+
+test("first-open probe is latched as interrupted on a hide with the owner panel open", () => {
+  // Terminal-tab switch while the fresh-CWD probe is pending: the probe must be
+  // latched as interrupted so it cannot navigate once the tab is reshown.
+  assert.equal(
+    shouldLatchInitialFollowInterruption({ isVisible: false, ownerPanelOpen: true }),
+    true,
+  );
+  assert.equal(
+    shouldLatchInitialFollowInterruption({ isVisible: true, ownerPanelOpen: true }),
+    false,
+  );
+  // A panel close is not an interruption latch: the reset guard re-arms there.
+  assert.equal(
+    shouldLatchInitialFollowInterruption({ isVisible: false, ownerPanelOpen: false }),
+    false,
+  );
 });

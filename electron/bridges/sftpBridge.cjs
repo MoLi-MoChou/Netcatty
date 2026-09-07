@@ -750,7 +750,7 @@ function ensureRemoteSftpSupport(sessionId) {
   return { session, sshClient };
 }
 
-function findRemoteSftpSourceByEndpoint(sourceSessionId, expectedEndpoint) {
+function findRemoteSftpSourceByEndpoint(sourceSessionId, expectedEndpoint, requireExactSession = false) {
   const requested = sessions?.get(sourceSessionId);
   const matchesExpectedEndpoint = (session) => {
     const actualEndpoint = session?._reuseEndpoint || session?.connRef?.endpoint;
@@ -767,6 +767,8 @@ function findRemoteSftpSourceByEndpoint(sourceSessionId, expectedEndpoint) {
   if (requested && matchesExpectedEndpoint(requested) && hasLiveSftpConnection(requested)) {
     return { sessionId: sourceSessionId, session: requested, sshClient: requested.conn || requested.sshClient };
   }
+
+  if (requireExactSession) return null;
 
   // The renderer only has endpoint fields when it chooses a sourceSessionId;
   // route, proxy, credential and host-key fingerprints live in the main
@@ -1914,7 +1916,11 @@ async function openSftpForSession(_event, payload) {
   let source;
   if (payload?.expectedEndpoint) {
     const expectedEndpoint = buildConnectionReuseEndpoint(payload.expectedEndpoint);
-    source = findRemoteSftpSourceByEndpoint(sessionId, expectedEndpoint);
+    source = findRemoteSftpSourceByEndpoint(
+      sessionId,
+      expectedEndpoint,
+      payload?.requireExactSourceSession === true,
+    );
     if (!source) {
       const err = new Error("Source session SSH route does not match the requested SFTP endpoint");
       err.code = "ERR_SFTP_SOURCE_ROUTE_MISMATCH";
@@ -1987,34 +1993,11 @@ async function openSftpForSession(_event, payload) {
     }
 
     if (sudoRequested) {
-      let sftpWrapper;
-      let sudoActive = true;
-      try {
-        sftpWrapper = await connectSudoSftp(sshClient, payload?.password || "");
-      } catch (e) {
-        // Fallback: if sftp-server binary is missing (exit code 127), try the
-        // standard SFTP subsystem instead of failing completely. Mirrors openSftp
-        // (ESXi / hosts without a standalone sftp-server). Keeps the reused SSH
-        // transport so MFA is not repeated.
-        if (e?.message && e.message.includes("exit code 127")) {
-          console.warn(
-            "[SFTP] openSftpForSession sftp-server not found, falling back to standard SFTP subsystem",
-          );
-          sudoActive = false;
-          sftpWrapper = await requireSftpChannel(client, {
-            signal: payload?.abortSignal,
-            timeoutMs: payload?.timeoutMs,
-          });
-        } else {
-          throw e;
-        }
-      }
+      const sftpWrapper = await connectSudoSftp(sshClient, payload?.password || "");
       client.sftp = sftpWrapper;
       client.__netcattyFileProtocol = "sftp";
-      client.__netcattySudoMode = sudoActive;
-      if (sudoActive) {
-        sftpWrapper.on?.("close", () => client.end());
-      }
+      client.__netcattySudoMode = true;
+      sftpWrapper.on?.("close", () => client.end());
       throwIfAborted(payload?.abortSignal);
       copySftpEncodingState(payload?.encodingStateKey, sftpId);
       sftpClients.set(sftpId, client);
