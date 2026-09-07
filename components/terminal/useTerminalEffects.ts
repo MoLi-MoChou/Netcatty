@@ -652,7 +652,7 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
               passwordPromptActiveRef.current = snap.passwordPromptActive;
             }
             if (snap.cwd !== undefined) {
-              const cwd = terminalCwdTracker.setRendererCwd(snap.cwd);
+              const cwd = terminalCwdTracker.setRendererCwd(snap.cwd, "snapshot");
               knownCwdRef.current = cwd;
               publishPluginTerminalRuntimeLifecycleEvent(
                 pluginTerminalLifecycle,
