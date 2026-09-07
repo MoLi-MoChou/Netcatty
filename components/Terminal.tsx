@@ -879,6 +879,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   );
   const sudoAutofillPasswordRef = useRef(resolvedSudoAutofillPassword);
   sudoAutofillPasswordRef.current = resolvedSudoAutofillPassword;
+  const resolvedLoginUsername = useMemo(
+    () => resolveHostAuth({ host, keys, identities }).username,
+    [host, keys, identities],
+  );
   const sudoAutofillCandidatesRef = useRef(resolvedSudoAutofillCandidates);
   sudoAutofillCandidatesRef.current = resolvedSudoAutofillCandidates;
   const [passwordPickerState, setPasswordPickerState] = useState<PasswordPromptPickerState | null>(null);
@@ -3748,6 +3752,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     isDraggingOver,
   } = useTerminalDragDrop({
     host,
+    resolvedLoginUsername,
+    resolvedSudoPassword: resolvedSudoAutofillPassword,
     isLocalConnection,
     isNetworkDevice,
     onOpenSftp,
