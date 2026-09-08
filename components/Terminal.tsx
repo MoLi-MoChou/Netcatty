@@ -1,3 +1,4 @@
+import { resolveHostOs } from '../domain/host';
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -252,6 +253,8 @@ import {
   shouldStartTerminalBackend,
 } from "./terminal/restoredSessionGate";
 import {
+  alignTerminalViewportScroll,
+  createSynchronizedOutputFitScheduler,
   AUTO_RUN_SNIPPET_LINE_DELAY_MS,
   forceSyncRenderAfterResize,
   MAX_CONNECTION_LOG_DATA_CHARS,
@@ -564,6 +567,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const reconnectWakeInvalidateModeRef = useRef<"dispose" | "keep">("dispose");
   const reconnectWakeTokenRef = useRef<symbol | null>(null);
   const manualReconnectRequestRef = useRef<() => void>(() => {});
+  // Once a pane reconnects, every later SSH attempt in it must dial a fresh
+  // connection: reusing a live/idle pooled transport multiplexes onto the old
+  // login, so remote supplementary-group changes (e.g. `usermod -aG`) are not
+  // picked up until the app fully quits (#3293). See createTerminalSessionStarters.
+  const requireFreshConnectionOnReconnectRef = useRef(false);
   const terminalDataCapturedRef = useRef(false);
   const connectionLogBufferRef = useRef(createConnectionLogBuffer(MAX_CONNECTION_LOG_DATA_CHARS));
   const terminalOutputHistoryRef = useRef(createTerminalOutputHistoryPreview());
@@ -638,6 +646,17 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   const fontWeightFixupDoneRef = useRef(false);
 
   const captureTerminalLogData = useCallback((data: string) => {
+    // Keep the history tracker's viewport size current so cursor-row and
+    // cursor-column moves are clamped exactly like the terminal clamps them.
+    const captureTerm = termRef.current;
+    if (captureTerm) {
+      terminalOutputHistoryRef.current.setViewportRows(captureTerm.rows);
+      terminalOutputHistoryRef.current.setViewportCols(captureTerm.cols);
+      // The tracker's wrap decisions must measure cell widths the way this
+      // terminal's Unicode provider does, or the preview diverges from what
+      // xterm actually rendered (e.g. `15-graphemes` emoji widths).
+      terminalOutputHistoryRef.current.setWidthTerminal(captureTerm);
+    }
     const readableCommandData = commandLogRewriterRef.current.append(data);
     // The alternate-screen preview reads the raw display stream (before the
     // replay sanitizer, which drops alternate-screen output on purpose) but
@@ -1081,12 +1100,15 @@ const TerminalComponent: React.FC<TerminalProps> = ({
   // hosts (TerminalLayer) and saved-host defaults (HostDetailsPanel) both
   // stamp os: "linux", which mis-routes the autocomplete clear sequence to
   // Ctrl-U on Windows where cmd/PowerShell render it literally (#1112).
-  const autocompleteHostOs: "linux" | "windows" | "macos" = host.protocol === "local"
+  const resolvedAutocompleteOs = host.protocol === "local"
     ? detectLocalOs(navigator.userAgent || navigator.platform)
-    : (host.os || "linux");
+    : resolveHostOs(host);
+  const autocompleteHostOs = resolvedAutocompleteOs === "windows" || resolvedAutocompleteOs === "macos"
+    ? resolvedAutocompleteOs : "linux";
   const autocompleteSettings = resolveTerminalAutocompleteSettings({
     protocol: effectiveTerminalProtocol,
     terminalSettings,
+    systemUnknown: resolvedAutocompleteOs === 'unknown',
     isNetworkDevice: host.deviceType === 'network'
       || classifyDistroId(host.distro) === 'network-device',
   });
@@ -2274,6 +2296,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     clearHibernateRetry();
     clearAutoReconnect();
     void cleanupSession();
+    synchronizedFitSchedulerRef.current?.dispose();
     disposeRuntimeOnly();
   };
 
@@ -2375,6 +2398,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     sessionId,
     reuseConnectionFromSessionIdRef: reuseConnectionSourceRef,
     requireFreshConnection,
+    requireFreshConnectionOnReconnectRef,
     reuseConnectionSourceAttemptedRef,
     setConnectionReuseAttemptSourceId,
     shouldUseFreshSshConnection: () => {
@@ -2867,6 +2891,12 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     });
   }, [reuseConnectionFromSessionId, sessionId, terminalBackend]);
 
+  const synchronizedFitSchedulerRef = useRef<ReturnType<typeof createSynchronizedOutputFitScheduler> | null>(null);
+  if (!synchronizedFitSchedulerRef.current) {
+    synchronizedFitSchedulerRef.current = createSynchronizedOutputFitScheduler();
+  }
+  useEffect(() => () => synchronizedFitSchedulerRef.current?.dispose(), []);
+
   type SafeFitOptions = { force?: boolean; requireVisible?: boolean; immediate?: boolean; allowHidden?: boolean };
   const pendingWriteSafeFitRef = useRef<{
     term: XTerm;
@@ -2964,6 +2994,14 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           return;
         }
 
+        // Keep the frozen buffer intact until synchronized output finishes.
+        // Re-enter safeFit to use the latest size, buffer and reading position.
+        if (synchronizedFitSchedulerRef.current?.defer(term, () => {
+          if (termRef.current === term) {
+            safeFitRef.current({ ...options, force: true, immediate: true });
+          }
+        })) return;
+
         const buffer = term.buffer.active;
         const wasPinnedToBottom = buffer.viewportY >= buffer.baseY;
         const savedViewportY = buffer.viewportY;
@@ -2987,6 +3025,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           xtermRuntimeRef.current?.clearTextureAtlas();
           forceSyncRenderAfterResize(term);
         }
+
+        // Reflow changes the buffer row before xterm updates its scroll range.
+        // Align first so the relative restore below does not apply that delta twice.
+        alignTerminalViewportScroll(term);
 
         // Preserve scroll position across resize (superset/Tabby pattern).
         if (wasPinnedToBottom) {
@@ -3627,6 +3669,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     const retryStillActive = () => retryTokenStillCurrent() && termRef.current === term;
 
     bootEpochRef.current += 1;
+    // This start is a reconnect: force the bridge to dial a fresh connection
+    // instead of borrowing a parked/live transport, so the server performs a
+    // new login and picks up remote supplementary-group changes (#3293).
+    requireFreshConnectionOnReconnectRef.current = true;
     publishBootEpoch();
     isBootActiveRef.current = true;
     auth.resetForRetry();

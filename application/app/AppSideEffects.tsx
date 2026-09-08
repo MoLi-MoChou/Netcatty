@@ -43,7 +43,7 @@ import { materializeHostProxyProfile } from '../../domain/proxyProfiles';
 import { buildSshDeepLinkConnectionHost, buildSshDeepLinkEphemeralHost, buildSshDeepLinkEphemeralHostFromSaved, buildSshDeepLinkHostDraft, findSshDeepLinkHost, isLoopbackHostname, parseSshDeepLink } from '../../domain/sshDeepLink';
 import { buildTelnetDeepLinkConnectionHost, buildTelnetDeepLinkEphemeralHostFromSaved, buildTelnetDeepLinkOpenHost, findTelnetDeepLinkHost, materializeTelnetDeepLinkMatchHost, parseTelnetDeepLink } from '../../domain/telnetDeepLink';
 import { buildJmsDeepLinkEphemeralHost, isSupportedJmsProtocol, parseJmsDeepLink } from '../../domain/jmsDeepLink';
-import { applyEphemeralHostsUpdate, splitHostsUpdateByEphemeral } from '../../domain/ephemeralHosts';
+import { applyEphemeralHostDistroUpdate, applyEphemeralHostsUpdate, splitHostsUpdateByEphemeral } from '../../domain/ephemeralHosts';
 import { resolveHostAuth } from '../../domain/sshAuth';
 import { isEncryptedCredentialPlaceholder, stripSyncPayloadEncryptedCredentials } from '../../domain/credentials';
 import {
@@ -202,6 +202,7 @@ export function AppSideEffects() {
     addConnectionLog,
     updateConnectionLog,
     updateHostLastConnected,
+    updateHostDistro,
     importDataFromString,
     readPersistedHosts,
     groupConfigs,
@@ -1762,6 +1763,14 @@ export function AppSideEffects() {
     updateHosts(vaultHosts);
   }, [ephemeralHostIds, updateHosts]);
 
+  const updateTerminalHostDistro = useCallback((hostId: string, distro: string) => {
+    if (ephemeralHostIds.has(hostId)) {
+      setEphemeralHosts((previous) => applyEphemeralHostDistroUpdate(previous, hostId, distro));
+      return;
+    }
+    updateHostDistro(hostId, distro);
+  }, [ephemeralHostIds, updateHostDistro]);
+
   // Wrapper to create serial session with logging
   const handleConnectSerial = useCallback((config: SerialConfig, options?: { charset?: string }) => {
     const { username, hostname } = systemInfoRef.current;
@@ -1897,6 +1906,7 @@ export function AppSideEffects() {
       handleTerminalDataCapture,
       handleUpdateHostFromTerminal,
       updateTerminalHosts,
+      updateTerminalHostDistro,
       runSnippet: handleRunSnippet,
       splitSessionWithCurrentShell,
       toggleScriptsSidePanelRef,
@@ -1973,6 +1983,7 @@ export function AppSideEffects() {
     handleTerminalDataCapture,
     handleUpdateHostFromTerminal,
     updateTerminalHosts,
+    updateTerminalHostDistro,
     handleRunSnippet,
     splitSessionWithCurrentShell,
     handleEndSessionDrag,

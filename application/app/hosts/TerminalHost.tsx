@@ -20,7 +20,6 @@ import {
 import { useThemeRuntime, useTerminalAppearanceInjection } from '../../state/useThemeRuntime';
 import {
   useVaultSnapshot,
-  useVaultSnapshotActions,
 } from '../../state/vaultSnapshotStore';
 import { getAppHandlers, subscribeAppHandlers } from '../appHandlersBridge';
 import { publishAppShellDomainSlice } from '../appShellPropsStore';
@@ -37,7 +36,6 @@ export function TerminalHost() {
   const session = useSessionSnapshot();
   const sessionActions = useSessionSnapshotActions();
   const vault = useVaultSnapshot();
-  const vaultActions = useVaultSnapshotActions();
   const terminalSettings = useTerminalSettingsStore();
   const terminalSettingsActions = useTerminalSettingsActions();
   const {
@@ -243,7 +241,7 @@ export function TerminalHost() {
       terminalPaneMagnificationRef: handlers.terminalPaneMagnificationRef,
       sftpPaneMagnificationRef: handlers.sftpPaneMagnificationRef,
       toggleWorkspaceViewMode: sessionActions?.toggleWorkspaceViewMode,
-      updateHostDistro: vaultActions?.updateHostDistro,
+      updateHostDistro: handlers.updateTerminalHostDistro,
       updateSplitSizes: sessionActions?.updateSplitSizes,
       updateSessionFontSize: sessionActions?.updateSessionFontSize,
       updateSessionRestoreCwd: sessionActions?.updateSessionRestoreCwd,
@@ -271,7 +269,6 @@ export function TerminalHost() {
     terminalHosts,
     terminalSettings,
     terminalSettingsActions,
-    vaultActions,
   ]);
 
   useLayoutEffect(() => {

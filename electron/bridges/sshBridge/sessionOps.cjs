@@ -91,7 +91,9 @@ function withRemoteWatchdog(command, timeoutMs) {
     `( sleep ${seconds}`,
     // Resolve the watchdog subshell's own PID so the tree walk can skip it
     // (killing ourselves mid-list would abort the remaining kills).
-    `&& nc_self=$(sh -c 'echo $PPID' 2>/dev/null)`,
+    // exec replaces the command-substitution shell: without it Bash may
+    // report that intermediate PID instead of the watchdog subshell.
+    `&& nc_self=$(exec sh -c 'echo $PPID' 2>/dev/null)`,
     `&& nc_tree=$(ps -e -o pid=,ppid= 2>/dev/null | awk -v root="$$" -v self="$nc_self" '${descendantTreeAwk}')`,
     `&& kill -9 $nc_tree "$$" 2>/dev/null ) </dev/null >/dev/null 2>&1 & nc_watchdog_pid=$!`,
   ].join(' ');
@@ -169,7 +171,15 @@ function createSessionOpsApi(ctx) {
           knownHosts: session.etStatsAuth?.knownHosts,
         });
       }
-      if (!session || !session.conn) {
+      if (session?.type === 'mosh' && !session.moshStatsConn && typeof ensureMoshStatsConnection === 'function') {
+        try {
+          await ensureMoshStatsConnection(session, sessionId, _event?.sender);
+        } catch (err) {
+          return { success: false, error: err?.message || String(err) };
+        }
+      }
+      const conn = session?.conn || session?.moshStatsConn;
+      if (!conn) {
         return { success: false, error: 'Session not found or not connected' };
       }
       const command = withPosixRemoteWatchdog(
@@ -177,7 +187,7 @@ function createSessionOpsApi(ctx) {
         5000,
       );
       try {
-        const { stdout, stderr } = await executeBoundedSshCommand(session.conn, command, {
+        const { stdout, stderr } = await executeBoundedSshCommand(conn, command, {
           openingTimeoutMs: 5000,
           runTimeoutMs: 5000,
           maxOutputBytes: 256 * 1024,
