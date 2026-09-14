@@ -175,6 +175,8 @@ declare global {
      * Default true (normal terminal, browse, and MFA-skip reuse).
      */
     reuseTransport?: boolean;
+    /** Original unsaved-password profile; main retains only its digest for live SFTP borrowing. */
+    sftpReuseOptions?: NetcattySSHOptions;
   }
 
   interface SftpStatResult {
@@ -185,6 +187,9 @@ declare global {
     permissions?: string; // e.g., "rwxr-xr-x"
     owner?: string;
     group?: string;
+    /** Local-only filesystem identity; undefined for remote SFTP stats. */
+    dev?: number;
+    ino?: number;
   }
 
   interface SftpTransferProgress {

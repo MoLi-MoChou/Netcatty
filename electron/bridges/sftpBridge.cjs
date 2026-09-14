@@ -56,6 +56,7 @@ let sftpClients = null;
 let electronModule = null;
 let sessions = null;
 let reportOpenedSessionActivity = null;
+let reportSuppressedError = null;
 const rendererSftpSourceSessions = new Map();
 const REMOTE_DELETE_EXEC_OPEN_TIMEOUT_MS = 15_000;
 const REMOTE_DELETE_EXEC_RUN_TIMEOUT_MS = 10 * 60_000;
@@ -735,6 +736,9 @@ function init(deps) {
   reportOpenedSessionActivity = typeof deps.reportOpenedSessionActivity === "function"
     ? deps.reportOpenedSessionActivity
     : null;
+  reportSuppressedError = typeof deps.reportSuppressedError === "function"
+    ? deps.reportSuppressedError
+    : null;
   rendererSftpSourceSessions.clear();
 }
 
@@ -756,7 +760,13 @@ function findRemoteSftpSourceByEndpoint(sourceSessionId, expectedEndpoint, requi
     const actualEndpoint = session?._reuseEndpoint || session?.connRef?.endpoint;
     return Boolean(
       actualEndpoint
-      && endpointAllowsReuse(expectedEndpoint, actualEndpoint, "channel"),
+      && (endpointAllowsReuse(expectedEndpoint, actualEndpoint, "channel")
+        || (session._sftpReuseEndpoint
+          && endpointAllowsReuse({
+            ...session._sftpReuseEndpoint,
+            authFingerprint: actualEndpoint.authFingerprint,
+          }, actualEndpoint, "channel")
+          && endpointAllowsReuse(expectedEndpoint, session._sftpReuseEndpoint, "channel"))),
     );
   };
   const hasLiveSftpConnection = (session) => {
@@ -2016,10 +2026,14 @@ async function openSftpForSession(_event, payload) {
     }
 
     try {
-      await requireSftpChannel(client, {
+      // This is a fresh client: retain the initial channel-open error instead
+      // of passing through recovery, which replaces it with a generic error.
+      const channel = await tryOpenSftpChannel(client, {
         signal: payload?.abortSignal,
         timeoutMs: payload?.timeoutMs,
       });
+      if (!hasSftpChannelApi(channel)) throw new Error("SFTP channel unavailable");
+      client.sftp = channel;
       client.__netcattyFileProtocol = "sftp";
     } catch (sftpErr) {
       if (fileProtocol === "sftp") throw sftpErr;
@@ -2028,6 +2042,23 @@ async function openSftpForSession(_event, payload) {
         `[SFTP] openSftpForSession SFTP channel failed for ${sessionId}; falling back to SCP mode:`,
         sftpErr?.message || String(sftpErr),
       );
+      // The terminal worker has no Electron app: forward to main's logger.
+      try {
+        const source = "sftpBridge.openSftpForSession";
+        const message = `SFTP channel failed for ${sourceSessionId}; falling back to SCP mode (${fileProtocol})`;
+        if (reportSuppressedError) {
+          reportSuppressedError(source, sftpErr, message);
+        } else {
+          require("./crashLogBridge.cjs").captureDiagnostic(source, message, {
+            sessionId: sourceSessionId,
+            fileProtocol,
+            reason: sftpErr?.message || String(sftpErr),
+            reasonCode: sftpErr?.code ?? sftpErr?.level ?? undefined,
+          });
+        }
+      } catch {
+        // Diagnostic failures must not prevent the fallback.
+      }
       client.__netcattyFileProtocol = "scp";
       client.sftp = null;
       try {
@@ -2351,7 +2382,28 @@ const openConnectionApi = createOpenConnectionApi({
   buildConnectionReuseEndpoint,
   resolveConnectionKeepalivePolicy,
 });
-const { connectThroughChainForSftp, connectSudoSftp, openSftp } = openConnectionApi;
+const { connectThroughChainForSftp, connectSudoSftp } = openConnectionApi;
+async function openSftp(event, options) {
+  // The main SFTP page has no explicit terminal hint. Look for the original
+  // profile of a live, temporarily authenticated terminal before dialing.
+  if (options.reuseTransport !== false) {
+    const endpoint = buildConnectionReuseEndpoint(options);
+    const source = findRemoteSftpSourceByEndpoint(options.sourceSessionId, endpoint);
+    if (source?.session._sftpReuseEndpoint) {
+      try {
+        return await openSftpForSession(event, {
+          ...options,
+          sessionId: source.sessionId,
+          expectedEndpoint: options,
+          requireExactSourceSession: true,
+        });
+      } catch {
+        // Preserve the normal fresh-connection fallback if the channel fails.
+      }
+    }
+  }
+  return openConnectionApi.openSftp(event, options);
+}
 const { createFileOpsApi } = require("./sftpBridge/fileOps.cjs");
 const fileOpsApi = createFileOpsApi({
   get sftpClients() { return sftpClients; },
