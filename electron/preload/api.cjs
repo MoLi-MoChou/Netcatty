@@ -1882,6 +1882,7 @@ function createPreloadApi(ctx) {
           fallbackModel: codebuddyOptions.fallbackModel,
           sandbox: codebuddyOptions.sandbox,
           enableFileCheckpointing: codebuddyOptions.enableFileCheckpointing,
+          persistSession: codebuddyOptions.persistSession,
         }
       : {};
     return ipcRenderer.invoke("netcatty:ai:sdk-agent:stream", {

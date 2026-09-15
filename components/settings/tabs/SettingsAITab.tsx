@@ -111,7 +111,7 @@ function getSavedManagedAgentPathInfo(
   return {
     path: command,
     binPath: command,
-    version: null,
+    version: managed.cliVersion ?? null,
     available: savedAvailable,
     installed: true,
     authenticated: undefined,
