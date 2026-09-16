@@ -359,3 +359,15 @@ test("buildSshDeepLinkEphemeralHost keeps an explicit empty password", () => {
   assert.equal(ephemeral.authMethod, "password");
   assert.equal(ephemeral.legacyAlgorithms, true);
 });
+
+test("buildSshDeepLinkEphemeralHostFromSaved enables legacyAlgorithms for loopback", () => {
+  const ephemeral = buildSshDeepLinkEphemeralHostFromSaved(
+    host({ id: "saved", hostname: "127.0.0.1", username: "root", port: 22, legacyAlgorithms: false }),
+    { rawUrl: "ssh://root@127.0.0.1:60609", username: "root", hostname: "127.0.0.1", port: 60609, password: "" },
+    { id: "ephemeral-id", now: 1 },
+  );
+  assert.equal(ephemeral.legacyAlgorithms, true);
+  assert.equal(ephemeral.password, "");
+  assert.equal(ephemeral.ephemeral, true);
+});
+

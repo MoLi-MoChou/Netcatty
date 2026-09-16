@@ -146,3 +146,38 @@ test("a superseded Windows detection cannot update the newer connection", async 
   } as never, 'reconnected', registerConnectionToken('reconnected'));
   assert.deepEqual(detected, []);
 });
+
+test("runDistroDetection skips POSIX distro probe for ephemeral loopback bastion hosts", async () => {
+  let remoteInfoCalls = 0;
+  let distroProbeCalls = 0;
+  const detected: string[] = [];
+  const token = registerConnectionToken("xsh-session");
+
+  await runDistroDetection({
+    host: {
+      id: "ephemeral-xsh",
+      label: "bastion",
+      hostname: "127.0.0.1",
+      username: "root",
+      ephemeral: true,
+    },
+    terminalBackend: {
+      getSessionRemoteInfo: async () => {
+        remoteInfoCalls += 1;
+        return { success: true, remoteSshVersion: "SSH-2.0-OpenSSH_8.9" };
+      },
+      getSessionDistroInfo: async () => {
+        distroProbeCalls += 1;
+        return { success: true, stdout: 'ID="ubuntu"\n' };
+      },
+    },
+    onOsDetected: (_hostId: string, distro: string) => {
+      detected.push(distro);
+    },
+  } as never, "xsh-session", token);
+
+  assert.equal(remoteInfoCalls, 1);
+  assert.equal(distroProbeCalls, 0);
+  assert.deepEqual(detected, []);
+});
+

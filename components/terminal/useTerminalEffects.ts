@@ -332,7 +332,12 @@ export function useTerminalEffects(ctx: TerminalEffectsContext) {
         // SSH banner, which is captured for free at handshake time.
         const info = await terminalBackend.getSessionRemoteInfo?.(id);
         if (cancelled || id !== sessionRef.current) return;
-        if (!shouldProbeSessionCwd({ isNetworkDevice, remoteSshVersion: info?.remoteSshVersion })) {
+        if (!shouldProbeSessionCwd({
+          isNetworkDevice,
+          remoteSshVersion: info?.remoteSshVersion,
+          ephemeral: host.ephemeral === true,
+          hostname: host.hostname,
+        })) {
           return;
         }
         const result = await terminalBackend.getSessionPwd(id);

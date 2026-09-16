@@ -178,6 +178,9 @@ function createSessionOpsApi(ctx) {
           openingTimeoutMs: 5000,
           runTimeoutMs: 5000,
           maxOutputBytes: 256 * 1024,
+          // Best-effort icon probe must never tear down the interactive shell
+          // (bastion MaxSessions=1 / Huawei VRP #1043).
+          invalidateOnOpenTimeout: false,
         });
         return { success: true, stdout, stderr };
       } catch (err) {
@@ -688,14 +691,16 @@ function createSessionOpsApi(ctx) {
         )}`;
 
         void executeBoundedSshCommand(session.conn, cmd, {
-          // Do not shorten channel opening: a timeout there invalidates the
-          // shared SSH transport. Only bound the best-effort command itself.
+          // Best-effort cwd probe must never invalidate the interactive
+          // transport. Bastion one-shot tunnels and some CLIs close the shell
+          // when a second channel is attempted; a timed-out open must not make
+          // that worse by ending the shared conn (#1043 / .xsh exit 0).
           openingTimeoutMs: 5000,
           runTimeoutMs: timeoutMs,
           maxOutputBytes: 256 * 1024,
           setTimeoutFn: setTimeout,
           clearTimeoutFn: clearTimeout,
-          invalidateOnOpenTimeout: !isTargetedRecovery,
+          invalidateOnOpenTimeout: false,
         }).then(({ stdout, stderr, code }) => {
               if (!isCurrentPwdOwner()) {
                 settle({ success: false, error: 'Session changed during cwd probe' });

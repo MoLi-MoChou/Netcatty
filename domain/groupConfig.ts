@@ -160,6 +160,8 @@ const EMPTY_STRING_OVERRIDES_GROUP_DEFAULT = new Set<keyof GroupConfig>([
   'telnetIdentityId',
   // Empty-string host identityId = explicitly no identity (auth-retry save, #1956); do not re-inherit group identity.
   'identityId',
+  // Bastion .xsh / ssh:// empty password is intentional (Enter at Password:).
+  'password',
 ]);
 
 const SSH_CREDENTIAL_KEYS = new Set<keyof GroupConfig>([

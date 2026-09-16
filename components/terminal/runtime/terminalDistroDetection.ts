@@ -2,6 +2,7 @@ import {
   classifyDistroId,
   detectVendorFromSshVersion,
   normalizeDistroId,
+  shouldProbeSessionCwd,
 } from "../../../domain/host";
 import { logger } from "../../../lib/logger";
 import type { TerminalSessionStartersContext } from "./createTerminalSessionStarters.types";
@@ -79,6 +80,15 @@ export const runDistroDetection = async (
 
   if (!isStillCurrent()) return;
   if (isKnownNetworkDevice) return;
+  // Bastion .xsh / ephemeral loopback: a second exec channel often kills the
+  // interactive shell with exit 0 (MaxSessions=1). Banner detection above is enough.
+  if (!shouldProbeSessionCwd({
+    isNetworkDevice: false,
+    ephemeral: ctx.host.ephemeral === true,
+    hostname: ctx.host.hostname,
+  })) {
+    return;
+  }
 
   // Step 2: unknown or generic OpenSSH/Dropbear — fall back to the
   // /etc/os-release probe to pick a distro-specific icon. We deliberately
