@@ -270,22 +270,30 @@ export const shouldSuggestNetworkDeviceMode = (opts: {
 };
 
 /**
- * Decide whether it is safe to run the post-connect `pwd` probe that
- * discovers the session's working directory. The probe opens an extra exec
- * channel running a POSIX-shell script; strict network-device CLIs such as
- * Huawei VRP respond by closing the whole SSH session (#1043), so it must be
- * skipped for them.
+ * Decide whether it is safe to run post-connect silent exec probes (cwd /
+ * distro / shellPid). Those open an extra channel; strict network-device CLIs
+ * (Huawei VRP, #1043) and bastion one-shot tunnels (ephemeral .xsh → loopback)
+ * often answer by closing the interactive shell with exit 0.
  *
- * `isNetworkDevice` covers hosts we already classified (a reconnect, or an
- * explicit `deviceType: 'network'`). On a brand-new host that field is not
- * populated yet, so we also inspect the SSH server identification banner —
- * captured for free at handshake — which identifies most vendors directly.
+ * `isNetworkDevice` covers hosts we already classified. On a brand-new host
+ * we also inspect the SSH banner. Ephemeral / loopback hosts skip entirely.
  */
+const isLoopbackHostnameForProbes = (hostname?: string): boolean => {
+  const host = String(hostname || "").trim().replace(/^\[(.*)\]$/, "$1").toLowerCase();
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
+};
+
 export const shouldProbeSessionCwd = (opts: {
   isNetworkDevice: boolean;
   remoteSshVersion?: string;
-}): boolean =>
-  !opts.isNetworkDevice && !detectVendorFromSshVersion(opts.remoteSshVersion);
+  /** Ephemeral deep-link / bastion hosts must not open a second channel. */
+  ephemeral?: boolean;
+  hostname?: string;
+}): boolean => {
+  if (opts.ephemeral) return false;
+  if (isLoopbackHostnameForProbes(opts.hostname)) return false;
+  return !opts.isNetworkDevice && !detectVendorFromSshVersion(opts.remoteSshVersion);
+};
 
 export const getEffectiveHostDistro = (
   host?: Pick<Host, 'distro' | 'manualDistro' | 'distroMode'> | null,

@@ -724,7 +724,11 @@ export const createTerminalSessionStarters = (ctx: TerminalSessionStartersContex
           // Only an explicit Copy/Split may share an existing login. Ordinary
           // opens and reconnects must authenticate again to refresh remote groups.
           reuseTransport: sourceSessionId ? undefined : false,
-          skipShellPidDiscovery: ctx.isNetworkDevice === true,
+          skipShellPidDiscovery: ctx.isNetworkDevice === true
+            || ctx.host.ephemeral === true
+            || ["127.0.0.1", "localhost", "::1"].includes(
+              String(ctx.host.hostname || "").trim().replace(/^\[(.*)\]$/, "$1").toLowerCase(),
+            ),
         });
         if (!requiresFreshSshConnection) {
           ctx.onConnectAutomationSnapshotCommitted?.();
@@ -742,7 +746,7 @@ export const createTerminalSessionStarters = (ctx: TerminalSessionStartersContex
         (!!sanitizeCredentialValue(key?.privateKey) || !!targetIdentityFilePaths?.length)
         && (authMethod !== 'password' || ctx.host.useSshAgent === true)
       );
-      const hasPassword = !!effectivePassword;
+      const hasPassword = typeof effectivePassword === "string";
 
       const needsCredentialReentry =
         (authMethod === "password" && hasEncryptedPrimaryPassword && !hasPassword) ||
@@ -1187,7 +1191,7 @@ export const createTerminalSessionStarters = (ctx: TerminalSessionStartersContex
         (!!sanitizeCredentialValue(key?.privateKey) || !!moshIdentityFilePaths?.length)
         && (authMethod !== "password" || ctx.host.useSshAgent === true)
       );
-      const hasPassword = !!effectivePassword;
+      const hasPassword = typeof effectivePassword === "string";
       const needsCredentialReentry =
         (authMethod === "password" && hasEncryptedPrimaryPassword && !hasPassword) ||
         (authMethod !== "password" && authMethod !== "auto" && hasEncryptedPrimaryKey && !hasKeyMaterial && !hasPassword);
@@ -1478,7 +1482,7 @@ export const createTerminalSessionStarters = (ctx: TerminalSessionStartersContex
         (!!sanitizeCredentialValue(key?.privateKey) || !!etIdentityFilePaths?.length)
         && (authMethod !== "password" || ctx.host.useSshAgent === true)
       );
-      const hasPassword = !!effectivePassword;
+      const hasPassword = typeof effectivePassword === "string";
       const needsCredentialReentry =
         (authMethod === "password" && hasEncryptedPrimaryPassword && !hasPassword) ||
         (authMethod !== "password" && authMethod !== "auto" && hasEncryptedPrimaryKey && !hasKeyMaterial && !hasPassword);

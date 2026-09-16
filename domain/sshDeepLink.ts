@@ -163,6 +163,9 @@ export const buildSshDeepLinkEphemeralHostFromSaved = (
   protocol: "ssh",
   moshEnabled: false,
   etEnabled: false,
+  ...(isLoopbackHostname(target.hostname) || isLoopbackHostname(effectiveSavedHost.hostname)
+    ? { legacyAlgorithms: true }
+    : {}),
 });
 
 export const buildSshDeepLinkHostDraft = (

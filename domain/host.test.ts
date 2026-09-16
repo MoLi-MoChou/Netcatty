@@ -631,6 +631,38 @@ test("shouldProbeSessionCwd skips the probe on an already-classified network dev
   );
 });
 
+
+test("shouldProbeSessionCwd skips ephemeral bastion / deep-link hosts", () => {
+  assert.equal(
+    shouldProbeSessionCwd({
+      isNetworkDevice: false,
+      remoteSshVersion: "OpenSSH_9.6",
+      ephemeral: true,
+      hostname: "127.0.0.1",
+    }),
+    false,
+  );
+});
+
+test("shouldProbeSessionCwd skips loopback bastion tunnels even without ephemeral flag", () => {
+  assert.equal(
+    shouldProbeSessionCwd({
+      isNetworkDevice: false,
+      remoteSshVersion: "OpenSSH_9.6",
+      hostname: "127.0.0.1",
+    }),
+    false,
+  );
+  assert.equal(
+    shouldProbeSessionCwd({
+      isNetworkDevice: false,
+      remoteSshVersion: "OpenSSH_9.6",
+      hostname: "localhost",
+    }),
+    false,
+  );
+});
+
 test("shouldProbeSessionCwd skips the probe when the SSH banner reveals a network vendor", () => {
   // First connect to a brand-new Huawei VRP: host.distro not persisted yet, so
   // isNetworkDevice is still false — the banner is the only signal (#1043).
