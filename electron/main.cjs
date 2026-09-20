@@ -78,9 +78,11 @@ const {
   redactPuttyCommandLinePasswords,
   isJmsDeepLinkUrl,
   isXshellSessionPath,
+  isSecureCrtSessionPathCandidate,
   isSshDeepLinkUrl,
   isTelnetDeepLinkUrl,
   parseXshellSessionFile,
+  parseSecureCrtSessionFile,
   readJmsDeepLinkEnabledPreference,
   readSshDeepLinkEnabledPreference,
   shouldDeliverJmsDeepLink,
@@ -1196,6 +1198,20 @@ if (!gotLock) {
         return;
       }
       console.warn("[Main] Xshell session file present but could not be parsed:", filePath);
+    }
+    if (isSecureCrtSessionPathCandidate(filePath)) {
+      const parsedSessions = parseSecureCrtSessionFile(filePath);
+      if (parsedSessions.length > 0) {
+        for (const session of parsedSessions) {
+          if (session.protocol === "telnet") {
+            queueTelnetDeepLink(session.url);
+          } else {
+            queueSshDeepLink(session.url);
+          }
+        }
+        return;
+      }
+      console.warn("[Main] SecureCRT session file present but could not be parsed:", filePath);
     }
     queueOpenTerminalPath(filePath);
   });
