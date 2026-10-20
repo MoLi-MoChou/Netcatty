@@ -62,6 +62,31 @@ test("collectPuttyStyleDeepLinkUrls converts PuTTY argv when no ssh:// token is 
   );
 });
 
+test("collectPuttyStyleDeepLinkUrls opens SecureCRT session files as deep links", () => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "netcatty-securecrt-dl-"));
+  const filePath = path.join(dir, "bastion.ini");
+  fs.writeFileSync(filePath, [
+    'S:"Hostname"=10.0.0.8',
+    'S:"Username"=alice',
+    'S:"Protocol Name"=SSH2',
+    'D:"[SSH2] Port"=000008ae',
+  ].join("\n"), "utf8");
+  try {
+    assert.deepEqual(
+      collectPuttyStyleDeepLinkUrls([
+        String.raw`C:\Program Files\Netcatty\Netcatty.exe`,
+        filePath,
+      ]),
+      { ssh: ["ssh://alice@10.0.0.8:2222"], telnet: [] },
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("collectPuttyStyleDeepLinkUrls leaves ssh:// tokens to the existing collector", () => {
   assert.deepEqual(
     collectPuttyStyleDeepLinkUrls([

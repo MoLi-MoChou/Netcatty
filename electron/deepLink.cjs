@@ -9,6 +9,11 @@ const {
   isXshellSessionPath,
   parseXshellSessionFile,
 } = require("./xshellSessionFile.cjs");
+const {
+  collectSecureCrtSessionDeepLinks,
+  isSecureCrtSessionPathCandidate,
+  parseSecureCrtSessionFile,
+} = require("./secureCrtSessionFile.cjs");
 
 const SSH_DEEP_LINK_CHANNEL = "netcatty:deepLink:ssh";
 const TELNET_DEEP_LINK_CHANNEL = "netcatty:deepLink:telnet";
@@ -65,6 +70,11 @@ function collectPuttyStyleDeepLinkUrls(argv) {
   const xshellUrls = collectXshellSessionDeepLinkUrls(argv);
   if (xshellUrls.length > 0) {
     return { ssh: xshellUrls, telnet: [] };
+  }
+
+  const secureCrtLinks = collectSecureCrtSessionDeepLinks(argv);
+  if (secureCrtLinks.ssh.length > 0 || secureCrtLinks.telnet.length > 0) {
+    return secureCrtLinks;
   }
 
   const parsed = parsePuttyCommandLine(argv);
@@ -450,11 +460,14 @@ module.exports = {
   collectSshDeepLinkQueueItems,
   collectXshellSessionDeepLinkUrls,
   parseXshellSessionFile,
+  collectSecureCrtSessionDeepLinks,
+  parseSecureCrtSessionFile,
   collectSshDeepLinkUrls,
   collectTelnetDeepLinkUrls,
   redactPuttyCommandLinePasswords,
   isJmsDeepLinkUrl,
   isXshellSessionPath,
+  isSecureCrtSessionPathCandidate,
   isSshDeepLinkUrl,
   isTelnetDeepLinkUrl,
   readJmsDeepLinkEnabledPreference,

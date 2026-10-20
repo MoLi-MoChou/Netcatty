@@ -355,3 +355,34 @@ Set-ItemProperty "HKCU:\Software\Classes\Xshell.xsh\shell\open\command" -Name "(
 Remove-Item "HKCU:\Software\Classes\Xshell.xsh" -Recurse -Force
 ```
 
+## SecureCRT 会话文件（批量打开）
+
+SecureCRT 的会话保存在配置目录的 `Sessions\*.ini`，也可用 **工具 → 导出设置** 得到 XML 批量备份。
+
+Netcatty 支持像打开 Xshell `.xsh` 一样直接打开这些文件：读取 `Hostname` / `Username` / `Protocol Name` / 端口（含 `D:"[SSH2] Port"=000008ae` 十六进制），按 `ssh://`（或 Telnet）会话连接。**不会**解密 SecureCRT 的 `Password` / `Password V2`，也不会导入跳板/防火墙；需要时在 Netcatty 里手动输入密码。
+
+识别方式是 **内容嗅探**（`S:"Hostname"=…` 或 XML 中的 `Protocol Name` + `Hostname`），因此：
+
+- 命令行 / 第二实例 / macOS `open-file` 传入 `.ini` 或 `.xml` 时，只有 SecureCRT 会话内容才会变成 SSH 标签；普通 `.ini` 不会被误打开。
+- **不会**在安装程序里全局关联所有 `*.ini`（避免劫持无关配置文件）。
+
+Windows 上若希望双击 SecureCRT 会话时走 Netcatty，建议只改当前用户、针对 SecureCRT 会话 ProgID（或自建 `Netcatty.SecureCRTSession`），而不是把整个 `.ini` 扩展名抢过来，例如：
+
+```powershell
+# 仅为「你指定的」SecureCRT 会话 ProgID 设置打开方式（请按本机 ProgID 调整）
+New-Item -Path "HKCU:\Software\Classes\Netcatty.SecureCRTSession\shell\open\command" -Force | Out-Null
+Set-ItemProperty "HKCU:\Software\Classes\Netcatty.SecureCRTSession\shell\open\command" -Name "(default)" -Value '"C:\Path\To\Netcatty.exe" "%1"'
+# 可选：仅当你确认不会影响其它 .ini 用途时，再把特定会话扩展/ ProgID 指过来
+```
+
+恢复：
+
+```powershell
+Remove-Item "HKCU:\Software\Classes\Netcatty.SecureCRTSession" -Recurse -Force
+```
+
+验证批量导出：在 SecureCRT 中 **工具 → 导出设置** 得到 XML，然后：
+
+`Netcatty.exe "D:\backup\SCRTConfig.xml"`
+
+每个 SSH/Telnet 会话会打开一个标签；RDP 等其它协议会被跳过。
