@@ -8,6 +8,7 @@ import {
   Plug,
   Plus,
   User,
+  X,
 } from "lucide-react";
 import React, { useMemo, useState } from "react";
 import { useI18n } from "../application/i18n/I18nProvider";
@@ -673,7 +674,6 @@ const QuickConnectWizard: React.FC<QuickConnectWizardProps> = ({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      onClick={onClose}
     >
       <div
         className="w-[560px] max-w-[90vw] bg-background border border-border rounded-2xl animate-in fade-in-0 zoom-in-95 duration-200"
@@ -684,7 +684,7 @@ const QuickConnectWizard: React.FC<QuickConnectWizardProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-border/50">
+        <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 min-w-0">
             <Plug size={18} className="shrink-0 text-foreground" />
             <div className="min-w-0">
@@ -694,6 +694,17 @@ const QuickConnectWizard: React.FC<QuickConnectWizardProps> = ({
               ) : null}
             </div>
           </div>
+          {step !== "protocol" && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              aria-label={t("common.close")}
+              onClick={onClose}
+            >
+              <X size={16} />
+            </Button>
+          )}
         </div>
 
 
